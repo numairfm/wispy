@@ -4,7 +4,9 @@ set -e
 NAME="wispy"
 BIN="$HOME/.local/bin/$NAME"
 ICON="$HOME/.local/share/icons/hicolor/scalable/apps/$NAME.svg"
+TOGGLE_ICON="$HOME/.local/share/icons/hicolor/scalable/apps/$NAME-toggle.svg"
 DESKTOP="$HOME/.local/share/applications/$NAME.desktop"
+TOGGLE_DESKTOP="$HOME/.local/share/applications/$NAME-toggle.desktop"
 SERVICE="$HOME/.config/systemd/user/$NAME.service"
 SRC="$(cd "$(dirname "$0")" && pwd)"
 
@@ -40,12 +42,17 @@ do_install() {
 
     mkdir -p "$(dirname "$ICON")"
     cp "$SRC/$NAME.svg" "$ICON"
+    cp "$SRC/$NAME-toggle.svg" "$TOGGLE_ICON"
     echo "  icon    → $ICON"
+    echo "  icon    → $TOGGLE_ICON"
 
     mkdir -p "$(dirname "$DESKTOP")"
     sed "s|Exec=.*|Exec=$BIN server|;s|Icon=.*|Icon=$ICON|" \
         "$SRC/$NAME.desktop" > "$DESKTOP"
+    sed "s|Exec=.*|Exec=$BIN toggle|;s|Icon=.*|Icon=$TOGGLE_ICON|" \
+        "$SRC/$NAME-toggle.desktop" > "$TOGGLE_DESKTOP"
     echo "  desktop → $DESKTOP"
+    echo "  desktop → $TOGGLE_DESKTOP"
 
     if [ -f "$SRC/$NAME.service" ]; then
         mkdir -p "$(dirname "$SERVICE")"
@@ -66,7 +73,7 @@ do_uninstall() {
     systemctl --user stop "$NAME" 2>/dev/null || true
     systemctl --user disable "$NAME" 2>/dev/null || true
 
-    for f in "$BIN" "$ICON" "$DESKTOP" "$SERVICE"; do
+    for f in "$BIN" "$ICON" "$TOGGLE_ICON" "$DESKTOP" "$TOGGLE_DESKTOP" "$SERVICE"; do
         if [ -f "$f" ]; then
             rm "$f"
             echo "  removed $f"

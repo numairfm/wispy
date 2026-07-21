@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Wispy Toggle
+Comment=Toggle Wispy recording
+Exec=/home/numair/Projects/wispy/wispy.sh toggle
+Icon=/home/numair/Projects/wispy/wispy-toggle.svg
+Terminal=false
+NoDisplay=true
