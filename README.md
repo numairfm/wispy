@@ -6,7 +6,7 @@ Built with Python + PyQt6 — lightweight, native, Wayland/KDE Plasma.
 
 ## How it works
 
-1. Press your configured shortcut → a floating pill overlay appears at screen bottom
+1. Click the tray icon (or press your shortcut) → recording starts
 2. Speak — waveform and timer show recording
 3. Hit stop → audio sent to Groq Whisper API
 4. Transcribed text is typed via `ydotool`
@@ -14,49 +14,46 @@ Built with Python + PyQt6 — lightweight, native, Wayland/KDE Plasma.
 ## Requirements
 
 - Linux (KDE Plasma / Wayland)
-- `ydotool` (`apt install ydotool` / `pacman -S ydotool` / `dnf install ydotool`)
+- `ydotool` — text injection via uinput (`dnf install ydotool` / `pacman -S ydotool` / `apt install ydotool`)
 - A [Groq](https://groq.com) API key
 
-## Setup (from source)
+## Quick start
 
 ```sh
-cd wispy
+git clone <repo> && cd wispy
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
+./wispy.sh
 ```
 
-## Running
+Click tray icon → Settings → enter your Groq API key.
+
+## Install / Uninstall
 
 ```sh
-./wispy.sh                   # start daemon (system tray)
-./wispy.sh --toggle          # toggle recording on running instance
+# Build + install (binary, icon, desktop file, systemd service)
+./setup.sh install --build
+
+# Install without building (uses wispy.sh launcher)
+./setup.sh install
+
+# Remove everything
+./setup.sh uninstall
 ```
 
-## Build standalone executable
+Manual build only: `./build.sh` → `dist/wispy`
 
-No Python/venv needed at runtime — just one binary:
+Check service: `systemctl --user status wispy`
 
-```sh
-./build.sh                   # outputs dist/wispy
-cp dist/wispy ~/.local/bin/
-```
+## KDE shortcut
 
-### Desktop launcher (optional)
-
-```sh
-cp wispy.desktop ~/.local/share/applications/
-cp wispy.svg ~/.local/share/icons/hicolor/scalable/apps/
-```
-
-### KDE custom shortcut (recommended)
-
-- System Settings → Shortcuts → Custom Shortcuts → Edit → New → Global Shortcut → Run Command
-- Trigger: your preferred key combo (e.g. `Ctrl+Super+Space`)
-- Action: `/path/to/wispy --toggle`
+System Settings → Shortcuts → Custom Shortcuts → New → Global Shortcut → Run Command:
+- Trigger: your key combo (e.g. `Ctrl+Super+Space`)
+- Action: `~/.local/bin/wispy --toggle` (or `./wispy.sh --toggle`)
 
 ## Settings
 
-Right-click the tray icon → **Settings…** to configure:
+Tray icon → right-click → **Settings…** to configure:
 
 - Groq API key
 - Whisper model (`whisper-large-v3`, `whisper-large-v3-turbo`, `distil-whisper-large-v3-en`)
