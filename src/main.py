@@ -388,6 +388,21 @@ class WispyApp(QObject):
         except Exception:
             pass
 
+    def _clean_text(self, raw_text, key):
+        import groq
+        client = groq.Groq(api_key=key)
+        result = client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=[
+                {"role": "system", "content": CLEAN_PROMPT},
+                {"role": "user", "content": raw_text},
+            ],
+            temperature=0.3,
+            max_tokens=2048,
+        )
+        cleaned = result.choices[0].message.content.strip()
+        return cleaned if cleaned else raw_text
+
     # ── transcription & injection ───────────────────────────────
 
     def _transcribe_and_inject(self, buffer):
@@ -424,6 +439,11 @@ class WispyApp(QObject):
                     )
                 text = result.text.strip()
                 if text:
+                    if self.config.get("clean_text") and len(text.split()) >= 5:
+                        try:
+                            text = self._clean_text(text, key)
+                        except Exception:
+                            pass
                     if self.config.get("copy_to_clipboard"):
                         self._set_clipboard.emit(text)
                     import subprocess
