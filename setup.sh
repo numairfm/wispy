@@ -3,6 +3,7 @@ set -e
 
 NAME="wispy"
 BIN="$HOME/.local/bin/$NAME"
+TOGGLE_BIN="$HOME/.local/bin/$NAME-toggle.sh"
 ICON="$HOME/.local/share/icons/hicolor/scalable/apps/$NAME.svg"
 DESKTOP="$HOME/.local/share/applications/$NAME.desktop"
 SERVICE="$HOME/.config/systemd/user/$NAME.service"
@@ -38,6 +39,10 @@ do_install() {
         exit 1
     fi
 
+    cp "$SRC/$NAME-toggle.sh" "$TOGGLE_BIN"
+    chmod +x "$TOGGLE_BIN"
+    echo "  script  → $TOGGLE_BIN"
+
     mkdir -p "$(dirname "$ICON")"
     cp "$SRC/$NAME.svg" "$ICON"
     echo "  icon    → $ICON"
@@ -66,7 +71,7 @@ do_uninstall() {
     systemctl --user stop "$NAME" 2>/dev/null || true
     systemctl --user disable "$NAME" 2>/dev/null || true
 
-    for f in "$BIN" "$ICON" "$DESKTOP" "$SERVICE"; do
+    for f in "$BIN" "$TOGGLE_BIN" "$ICON" "$DESKTOP" "$SERVICE"; do
         if [ -f "$f" ]; then
             rm "$f"
             echo "  removed $f"

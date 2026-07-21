@@ -62,10 +62,10 @@ System Settings → Keyboard → Shortcuts → Custom Shortcuts → New → Glob
 - **Name:** Wispy Toggle
 - **Comment:** Toggle Wispy recording
 - **Trigger:** your key combo (e.g. `Ctrl+Super+Space`)
-- **Action:** `$HOME/.local/bin/wispy toggle`
+- **Action:** `$HOME/.local/bin/wispy-toggle.sh`
 
-> Use `$HOME`, not `~` — tilde doesn't expand in KDE's shortcut environment.
-> Custom shortcuts run outside your shell profile, so absolute paths are required.
+KDE runs command shortcuts as a shell environment — bash scripts work reliably.
+Use the installed wrapper script rather than calling `wispy` directly.
 
 ## Settings
 
