@@ -13,7 +13,7 @@ pyinstaller \
     --onefile \
     --noconfirm \
     --clean \
-    --add-data "../assets/wispy.svg:." \
+    --add-data "assets/wispy.svg:." \
     src/main.py
 
 echo ""
