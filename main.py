@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QFormLayout,
     QLineEdit, QComboBox, QPushButton,
 )
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, QObject, pyqtSignal
 from PyQt6.QtGui import QIcon, QPixmap, QColor, QPainter, QPen
 
 from overlay import OverlayWindow
@@ -138,8 +138,12 @@ class SettingsDialog(QDialog):
 
 # ── app ─────────────────────────────────────────────────────────
 
-class WispyApp:
+class WispyApp(QObject):
+    _notify = pyqtSignal(str, str)
+    _set_clipboard = pyqtSignal(str)
+
     def __init__(self):
+        super().__init__()
         self.app = QApplication(sys.argv)
         self.app.setApplicationName("Wispy")
         self.app.setQuitOnLastWindowClosed(False)
@@ -153,16 +157,27 @@ class WispyApp:
         self.stream: sd.InputStream | None = None
         self.current_level = 0.0
         self._rms_buf = [0.0] * 20
+        self._start_time = 0.0
+        self._audio_lock = threading.Lock()
 
         self.overlay = OverlayWindow(self._stop_recording,
                                      lambda: self.current_level)
         self._ipc_queue: queue.Queue = queue.Queue()
 
+        self._notify.connect(self._on_notify)
+        self._set_clipboard.connect(self._on_set_clipboard)
         self._setup_tray()
         self._start_ipc()
         self._poll = QTimer()
         self._poll.timeout.connect(self._poll_ipc)
         self._poll.start(100)
+
+    def _on_notify(self, title, msg):
+        self.tray.showMessage(title, msg,
+                              QSystemTrayIcon.MessageIcon.Critical, 5000)
+
+    def _on_set_clipboard(self, text):
+        QApplication.clipboard().setText(text)
 
     # ── config ──────────────────────────────────────────────────
 
@@ -214,21 +229,26 @@ class WispyApp:
         while self._running:
             try:
                 conn, _ = sock.accept()
-                data = conn.recv(1024)
-                conn.close()
-                if data.strip() == b"toggle":
-                    self._ipc_queue.put("toggle")
+                try:
+                    data = conn.recv(1024)
+                    if data.strip() == b"toggle":
+                        self._ipc_queue.put("toggle")
+                finally:
+                    conn.close()
             except socket.timeout:
                 continue
             except OSError:
-                break
+                continue
         sock.close()
         SOCKET_PATH.unlink(missing_ok=True)
 
     def _poll_ipc(self):
         try:
             while self._ipc_queue.get_nowait() == "toggle":
-                self.toggle_overlay()
+                try:
+                    self.toggle_overlay()
+                except Exception as e:
+                    print(f"wispy: toggle error: {e}", file=sys.stderr)
         except queue.Empty:
             pass
 
@@ -244,6 +264,7 @@ class WispyApp:
         self.audio_buffer = []
         self.current_level = 0.0
         self._rms_buf = [0.0] * 20
+        self._start_time = time.monotonic()
         self.recording = True
         try:
             self.stream = sd.InputStream(callback=self._audio_cb,
@@ -259,80 +280,93 @@ class WispyApp:
         self.overlay.show()
 
     def _audio_cb(self, indata, frames, time_info, status):
-        if self.recording:
+        with self._audio_lock:
+            if not self.recording:
+                return
             self.audio_buffer.append(indata.copy())
-            rms = float(np.sqrt(np.mean(indata ** 2)))
-            self._rms_buf = self._rms_buf[1:] + [rms]
-            noise = min(self._rms_buf) if self._rms_buf else rms
-            signal = max(rms - noise, 0.0)
-            raw = min(signal * 60.0, 1.0) if noise > 0.0001 else 0.0
-            self.current_level = self.current_level * 0.55 + raw * 0.45
+        rms = float(np.sqrt(np.mean(indata ** 2)))
+        self._rms_buf = self._rms_buf[1:] + [rms]
+        noise = min(self._rms_buf) if self._rms_buf else rms
+        signal = max(rms - noise, 0.0)
+        raw = min(signal * 60.0, 1.0) if noise > 0.0001 else 0.0
+        self.current_level = self.current_level * 0.55 + raw * 0.45
 
     def _stop_recording(self):
-        if not self.recording:
-            return
-        self.recording = False
+        with self._audio_lock:
+            if not self.recording:
+                return
+            self.recording = False
+            buffer = self.audio_buffer
+            self.audio_buffer = None
         if self.stream:
-            self.stream.stop()
-            self.stream.close()
+            try:
+                self.stream.stop()
+                self.stream.close()
+            except Exception:
+                pass
             self.stream = None
         self.overlay.hide()
-        self._transcribe_and_inject()
+        elapsed = time.monotonic() - self._start_time
+        if elapsed < 2.0:
+            self.tray.showMessage("Wispy", "Recording too short (min 2s)",
+                                  QSystemTrayIcon.MessageIcon.Information, 2000)
+            return
+        threading.Thread(target=self._transcribe_and_inject,
+                         args=(buffer,), daemon=True).start()
 
     # ── transcription & injection ───────────────────────────────
 
-    def _transcribe_and_inject(self):
-        if not self.audio_buffer or len(self.audio_buffer) < 5:
-            self.audio_buffer = None
+    def _transcribe_and_inject(self, buffer):
+        if not buffer or len(buffer) < 5:
             return
-
-        audio = np.concatenate(self.audio_buffer, axis=0)
-        self.audio_buffer = None
-        audio_int16 = (audio * 32767).astype(np.int16)
-
-        tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
         try:
-            with wave.open(tmp, "wb") as wf:
-                wf.setnchannels(1)
-                wf.setsampwidth(2)
-                wf.setframerate(16000)
-                wf.writeframes(audio_int16.tobytes())
-            tmp.close()
+            audio = np.concatenate(buffer, axis=0)
+            audio_int16 = (audio * 32767).astype(np.int16)
 
-            key = self.config.get("groq_api_key") \
-                or os.environ.get("GROQ_API_KEY", "")
-            if not key:
-                self.tray.showMessage("Wispy",
-                                      "Set GROQ_API_KEY in Settings or env",
-                                      QSystemTrayIcon.MessageIcon.Critical, 5000)
-                return
+            tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+            try:
+                with wave.open(tmp, "wb") as wf:
+                    wf.setnchannels(1)
+                    wf.setsampwidth(2)
+                    wf.setframerate(16000)
+                    wf.writeframes(audio_int16.tobytes())
+                tmp.close()
 
-            client = groq.Groq(api_key=key)
-            with open(tmp.name, "rb") as f:
-                result = client.audio.transcriptions.create(
-                    model=self.config.get("groq_model", MODELS[0]),
-                    file=f,
-                    language=self.config.get("language") or None,
-                )
-            text = result.text.strip()
-            if text:
-                import subprocess
+                key = self.config.get("groq_api_key") \
+                    or os.environ.get("GROQ_API_KEY", "")
+                if not key:
+                    self._notify.emit("Wispy",
+                                      "Set GROQ_API_KEY in Settings or env")
+                    return
+
+                client = groq.Groq(api_key=key)
+                with open(tmp.name, "rb") as f:
+                    result = client.audio.transcriptions.create(
+                        model=self.config.get("groq_model", MODELS[0]),
+                        file=f,
+                        language=self.config.get("language") or None,
+                    )
+                text = result.text.strip()
+                if text:
+                    if self.config.get("copy_to_clipboard"):
+                        self._set_clipboard.emit(text)
+                    import subprocess
+                    try:
+                        subprocess.run(["ydotool", "type", "-d", "1", "-H", "1", text],
+                                       check=True, capture_output=True,
+                                       timeout=60)
+                    except FileNotFoundError:
+                        self._notify.emit("Wispy",
+                                          "ydotool not found — install it")
+                    except subprocess.CalledProcessError as e:
+                        self._notify.emit("Wispy", f"Type failed: {e}")
+            finally:
                 try:
-                    subprocess.run(["ydotool", "type", "-d", "1", text],
-                                   check=True, capture_output=True, timeout=60)
-                except FileNotFoundError:
-                    self.tray.showMessage(
-                        "Wispy", "ydotool not found — install it",
-                        QSystemTrayIcon.MessageIcon.Critical, 5000)
-                except subprocess.CalledProcessError as e:
-                    self.tray.showMessage(
-                        "Wispy", f"Type failed: {e}",
-                        QSystemTrayIcon.MessageIcon.Critical, 5000)
+                    os.unlink(tmp.name)
+                except OSError:
+                    pass
         except Exception as e:
-            self.tray.showMessage("Wispy", f"Error: {e}",
-                                  QSystemTrayIcon.MessageIcon.Critical, 5000)
-        finally:
-            os.unlink(tmp.name)
+            self._notify.emit("Wispy", f"Error: {e}")
 
     def quit(self):
         self._running = False
