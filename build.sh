@@ -15,7 +15,6 @@ pyinstaller \
     --clean \
     --add-data "overlay.py:." \
     --add-data "wispy.svg:." \
-    --add-data "wispy-toggle.svg:." \
     main.py
 
 echo ""

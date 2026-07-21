@@ -58,9 +58,14 @@ Check service: `systemctl --user status wispy`
 
 ## KDE shortcut
 
-System Settings → Shortcuts → Custom Shortcuts → New → Global Shortcut → Run Command:
-- Trigger: your key combo (e.g. `Ctrl+Super+Space`)
-- Action: `~/.local/bin/wispy toggle` (or `./wispy.sh toggle`)
+System Settings → Keyboard → Shortcuts → Custom Shortcuts → New → Global Shortcut → Command/URL:
+- **Name:** Wispy Toggle
+- **Comment:** Toggle Wispy recording
+- **Trigger:** your key combo (e.g. `Ctrl+Super+Space`)
+- **Action:** `$HOME/.local/bin/wispy toggle`
+
+> Use `$HOME`, not `~` — tilde doesn't expand in KDE's shortcut environment.
+> Custom shortcuts run outside your shell profile, so absolute paths are required.
 
 ## Settings
 
