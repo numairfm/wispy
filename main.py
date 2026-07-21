@@ -8,7 +8,8 @@ import groq
 from PyQt6.QtWidgets import (
     QApplication, QSystemTrayIcon, QMenu, QDialog,
     QVBoxLayout, QHBoxLayout, QFormLayout,
-    QLineEdit, QComboBox, QPushButton,
+    QLineEdit, QComboBox, QPushButton, QCheckBox,
+    QLabel,
 )
 from PyQt6.QtCore import Qt, QTimer, QObject, pyqtSignal
 from PyQt6.QtGui import QIcon, QPixmap, QColor, QPainter, QPen
@@ -26,6 +27,8 @@ MODELS = [
     "whisper-large-v3-turbo",
     "distil-whisper-large-v3-en",
 ]
+
+MIN_DURATION = 2.0
 
 
 # ── icon helpers ────────────────────────────────────────────────
@@ -96,25 +99,50 @@ class SettingsDialog(QDialog):
 
         form = QFormLayout(self)
         form.setContentsMargins(24, 20, 24, 20)
-        form.setVerticalSpacing(14)
+        form.setVerticalSpacing(10)
+
+        # ── Transcription ──
+        form.addRow(self._section("Transcription"))
 
         self.api_key = QLineEdit(config.get("groq_api_key", ""))
         self.api_key.setEchoMode(QLineEdit.EchoMode.Password)
         self.api_key.setPlaceholderText("gsk_...")
+        form.addRow("Groq API Key", self.api_key)
 
         self.model = QComboBox()
         self.model.addItems(MODELS)
         cur = config.get("groq_model", MODELS[0])
         if cur in MODELS:
             self.model.setCurrentText(cur)
+        form.addRow("Model", self.model)
 
         self.language = QLineEdit(config.get("language", ""))
         self.language.setPlaceholderText("Optional, e.g. en")
-
-        form.addRow("Groq API Key", self.api_key)
-        form.addRow("Model", self.model)
         form.addRow("Language", self.language)
 
+        # ── Audio ──
+        form.addRow(self._section("Audio"))
+
+        self.device = QComboBox()
+        self.device.addItem("System Default", "")
+        for i, d in enumerate(sd.query_devices()):
+            if d['max_input_channels'] > 0:
+                self.device.addItem(d['name'], d['name'])
+        cur_dev = config.get("input_device", "")
+        if cur_dev:
+            idx = self.device.findData(cur_dev)
+            if idx >= 0:
+                self.device.setCurrentIndex(idx)
+        form.addRow("Input Device", self.device)
+
+        # ── Behavior ──
+        form.addRow(self._section("Behavior"))
+
+        self.copy_clipboard = QCheckBox("Copy transcribed text to clipboard")
+        self.copy_clipboard.setChecked(config.get("copy_to_clipboard", False))
+        form.addRow(self.copy_clipboard)
+
+        # ── Buttons ──
         btn_row = QHBoxLayout()
         btn_row.addStretch()
         cancel = QPushButton("Cancel")
@@ -126,10 +154,19 @@ class SettingsDialog(QDialog):
         btn_row.addWidget(save)
         form.addRow(btn_row)
 
+    def _section(self, text):
+        lbl = QLabel(text)
+        f = lbl.font()
+        f.setBold(True)
+        lbl.setFont(f)
+        return lbl
+
     def _save(self):
         self.config["groq_api_key"] = self.api_key.text().strip()
         self.config["groq_model"] = self.model.currentText()
         self.config["language"] = self.language.text().strip()
+        self.config["input_device"] = self.device.currentData() or ""
+        self.config["copy_to_clipboard"] = self.copy_clipboard.isChecked()
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         with open(CONFIG_FILE, "w") as f:
             json.dump(self.config, f, indent=2)
@@ -267,9 +304,17 @@ class WispyApp(QObject):
         self._start_time = time.monotonic()
         self.recording = True
         try:
+            device = None
+            dev_name = self.config.get("input_device", "")
+            if dev_name:
+                for i, d in enumerate(sd.query_devices()):
+                    if d['name'] == dev_name and d['max_input_channels'] > 0:
+                        device = i
+                        break
             self.stream = sd.InputStream(callback=self._audio_cb,
                                          channels=1, samplerate=16000,
-                                         dtype="float32")
+                                         dtype="float32",
+                                         device=device)
             self.stream.start()
         except Exception as e:
             self.tray.showMessage("Wispy", f"Mic error: {e}",
@@ -307,7 +352,7 @@ class WispyApp(QObject):
             self.stream = None
         self.overlay.hide()
         elapsed = time.monotonic() - self._start_time
-        if elapsed < 2.0:
+        if elapsed < MIN_DURATION:
             self.tray.showMessage("Wispy", "Recording too short (min 2s)",
                                   QSystemTrayIcon.MessageIcon.Information, 2000)
             return
