@@ -159,6 +159,10 @@ class SettingsDialog(QDialog):
         self.copy_clipboard.setChecked(config.get("copy_to_clipboard", False))
         form.addRow(self.copy_clipboard)
 
+        self.clean_text = QCheckBox("Clean and format text with AI")
+        self.clean_text.setChecked(config.get("clean_text", False))
+        form.addRow(self.clean_text)
+
         # ── Buttons ──
         btn_row = QHBoxLayout()
         btn_row.addStretch()
@@ -184,6 +188,7 @@ class SettingsDialog(QDialog):
         self.config["language"] = self.language.text().strip()
         self.config["input_device"] = self.device.currentData() or ""
         self.config["copy_to_clipboard"] = self.copy_clipboard.isChecked()
+        self.config["clean_text"] = self.clean_text.isChecked()
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         with open(CONFIG_FILE, "w") as f:
             json.dump(self.config, f, indent=2)
@@ -242,7 +247,8 @@ class WispyApp(QObject):
 
     def _load_config(self) -> dict:
         d = {"groq_api_key": os.environ.get("GROQ_API_KEY", ""),
-             "groq_model": MODELS[0], "language": ""}
+             "groq_model": MODELS[0], "language": "",
+             "clean_text": False}
         if CONFIG_FILE.exists():
             with open(CONFIG_FILE) as f:
                 d.update(json.load(f))
