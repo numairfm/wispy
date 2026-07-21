@@ -31,6 +31,9 @@ Click tray icon → Settings → enter your Groq API key.
 ## Install / Uninstall
 
 ```sh
+# Activate venv first (required for build)
+source .venv/bin/activate
+
 # Build + install (binary, icon, desktop file, systemd service)
 ./setup.sh install --build
 
