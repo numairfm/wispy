@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import os, sys, json, signal, tempfile, wave, socket, threading, queue, argparse, time
+import os, sys, json, signal, tempfile, wave, socket, threading, argparse, time
 from pathlib import Path
 
 from PyQt6.QtWidgets import (
@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
     QLineEdit, QComboBox, QPushButton, QCheckBox,
     QLabel,
 )
-from PyQt6.QtCore import Qt, QTimer, QObject, pyqtSignal
+from PyQt6.QtCore import Qt, QObject, pyqtSignal, QSocketNotifier
 from PyQt6.QtGui import QIcon, QPixmap, QColor, QPainter, QPen
 
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "wispy"
@@ -175,6 +175,7 @@ class SettingsDialog(QDialog):
 class WispyApp(QObject):
     _notify = pyqtSignal(str, str)
     _set_clipboard = pyqtSignal(str)
+    _rec_error = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
@@ -197,15 +198,12 @@ class WispyApp(QObject):
         from overlay import OverlayWindow
         self.overlay = OverlayWindow(self._stop_recording,
                                      lambda: self.current_level)
-        self._ipc_queue: queue.Queue = queue.Queue()
 
         self._notify.connect(self._on_notify)
         self._set_clipboard.connect(self._on_set_clipboard)
+        self._rec_error.connect(self._on_rec_error)
         self._setup_tray()
         self._start_ipc()
-        self._poll = QTimer()
-        self._poll.timeout.connect(self._poll_ipc)
-        self._poll.start(100)
 
     def _on_notify(self, title, msg):
         self.tray.showMessage(title, msg,
@@ -213,6 +211,12 @@ class WispyApp(QObject):
 
     def _on_set_clipboard(self, text):
         QApplication.clipboard().setText(text)
+
+    def _on_rec_error(self, msg):
+        self.recording = False
+        self.overlay.hide()
+        self.tray.showMessage("Wispy", msg,
+                              QSystemTrayIcon.MessageIcon.Critical, 5000)
 
     # ── config ──────────────────────────────────────────────────
 
@@ -254,38 +258,26 @@ class WispyApp(QObject):
     def _start_ipc(self):
         SOCKET_DIR.mkdir(parents=True, exist_ok=True)
         SOCKET_PATH.unlink(missing_ok=True)
-        threading.Thread(target=self._ipc_loop, daemon=True).start()
+        self._sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self._sock.bind(str(SOCKET_PATH))
+        self._sock.listen(1)
+        self._sock.setblocking(False)
+        self._notifier = QSocketNotifier(
+            self._sock.fileno(), QSocketNotifier.Type.Read)
+        self._notifier.activated.connect(self._on_ipc_ready)
 
-    def _ipc_loop(self):
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        sock.bind(str(SOCKET_PATH))
-        sock.listen(1)
-        sock.settimeout(0.5)
-        while self._running:
-            try:
-                conn, _ = sock.accept()
-                try:
-                    data = conn.recv(1024)
-                    if data.strip() == b"toggle":
-                        self._ipc_queue.put("toggle")
-                finally:
-                    conn.close()
-            except socket.timeout:
-                continue
-            except OSError:
-                continue
-        sock.close()
-        SOCKET_PATH.unlink(missing_ok=True)
-
-    def _poll_ipc(self):
+    def _on_ipc_ready(self):
         try:
-            while self._ipc_queue.get_nowait() == "toggle":
-                try:
+            conn, _ = self._sock.accept()
+        except (BlockingIOError, OSError):
+            return
+        with conn:
+            try:
+                data = conn.recv(1024)
+                if data.strip() == b"toggle":
                     self.toggle_overlay()
-                except Exception as e:
-                    print(f"wispy: toggle error: {e}", file=sys.stderr)
-        except queue.Empty:
-            pass
+            except OSError:
+                pass
 
     # ── recording lifecycle ─────────────────────────────────────
 
@@ -296,12 +288,17 @@ class WispyApp(QObject):
             self._start_recording()
 
     def _start_recording(self):
-        import sounddevice as sd
         self.audio_buffer = []
         self.current_level = 0.0
         self._rms_buf = [0.0] * 20
         self._start_time = time.monotonic()
         self.recording = True
+        self.overlay.reset()
+        self.overlay.show()
+        threading.Thread(target=self._open_stream, daemon=True).start()
+
+    def _open_stream(self):
+        import sounddevice as sd
         try:
             device = None
             dev_name = self.config.get("input_device", "")
@@ -310,18 +307,19 @@ class WispyApp(QObject):
                     if d['name'] == dev_name and d['max_input_channels'] > 0:
                         device = i
                         break
-            self.stream = sd.InputStream(callback=self._audio_cb,
-                                         channels=1, samplerate=16000,
-                                         dtype="float32",
-                                         device=device)
-            self.stream.start()
+            stream = sd.InputStream(callback=self._audio_cb,
+                                    channels=1, samplerate=16000,
+                                    dtype="float32",
+                                    device=device)
+            stream.start()
+            with self._audio_lock:
+                if not self.recording:
+                    stream.stop()
+                    stream.close()
+                    return
+                self.stream = stream
         except Exception as e:
-            self.tray.showMessage("Wispy", f"Mic error: {e}",
-                                  QSystemTrayIcon.MessageIcon.Critical, 5000)
-            self.recording = False
-            return
-        self.overlay.reset()
-        self.overlay.show()
+            self._rec_error.emit(f"Mic error: {e}")
 
     def _audio_cb(self, indata, frames, time_info, status):
         import numpy as np
@@ -343,14 +341,12 @@ class WispyApp(QObject):
             self.recording = False
             buffer = self.audio_buffer
             self.audio_buffer = None
-        if self.stream:
-            try:
-                self.stream.stop()
-                self.stream.close()
-            except Exception:
-                pass
-            self.stream = None
         self.overlay.hide()
+        stream = self.stream
+        self.stream = None
+        if stream:
+            threading.Thread(target=self._close_stream,
+                             args=(stream,), daemon=True).start()
         elapsed = time.monotonic() - self._start_time
         if elapsed < MIN_DURATION:
             self.tray.showMessage("Wispy", "Recording too short (min 2s)",
@@ -358,6 +354,13 @@ class WispyApp(QObject):
             return
         threading.Thread(target=self._transcribe_and_inject,
                          args=(buffer,), daemon=True).start()
+
+    def _close_stream(self, stream):
+        try:
+            stream.stop()
+            stream.close()
+        except Exception:
+            pass
 
     # ── transcription & injection ───────────────────────────────
 
@@ -418,6 +421,9 @@ class WispyApp(QObject):
     def quit(self):
         self._running = False
         self._stop_recording()
+        self._notifier.setEnabled(False)
+        self._sock.close()
+        SOCKET_PATH.unlink(missing_ok=True)
         self.app.quit()
 
     def run(self):
