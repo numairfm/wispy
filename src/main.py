@@ -41,14 +41,14 @@ def _draw_icon(s=64):
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
     p.setPen(Qt.PenStyle.NoPen)
     m = 2
-    p.setBrush(QColor(240, 240, 240))
+    p.setBrush(QColor(30, 30, 30))
     p.drawRoundedRect(m, m, s - 2 * m, s - 2 * m, s // 5, s // 5)
     bw, bg, n = 5, 5, 5
     total_w = n * bw + (n - 1) * bg
     bx = (s - total_w) // 2
     cy = s // 2
     hs = [9, 17, 26, 17, 9]
-    p.setBrush(QColor(30, 30, 30))
+    p.setBrush(QColor(240, 240, 240))
     for i, h in enumerate(hs):
         x = bx + i * (bw + bg)
         p.drawRoundedRect(x, cy - h // 2, bw, h, 2, 2)
