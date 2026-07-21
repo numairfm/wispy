@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Wispy
+Comment=Voice-to-text daemon
+Exec=/home/numair/Projects/wispy/wispy.sh server
+Icon=/home/numair/Projects/wispy/wispy.svg
+Terminal=false
+Categories=Utility;
+StartupNotify=false

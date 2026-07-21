@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import os, sys, json, signal, tempfile, wave, socket, threading, queue
+import os, sys, json, signal, tempfile, wave, socket, threading, queue, argparse, time
 from pathlib import Path
 
 import numpy as np
@@ -77,8 +77,8 @@ def send_toggle():
         s.connect(str(SOCKET_PATH))
         s.sendall(b"toggle")
         s.close()
-    except (ConnectionRefusedError, FileNotFoundError):
-        SOCKET_PATH.unlink(missing_ok=True)
+        sys.exit(0)
+    except (ConnectionRefusedError, FileNotFoundError, socket.timeout, OSError):
         print("wispy: no running instance found")
         sys.exit(1)
 
@@ -344,8 +344,25 @@ class WispyApp:
         sys.exit(self.app.exec())
 
 
+def parse_args(argv):
+    """Parse CLI arguments and return the command name."""
+    parser = argparse.ArgumentParser(
+        prog="wispy",
+        description="Voice-to-text daemon for Linux (KDE Plasma/Wayland)",
+    )
+    sub = parser.add_subparsers(dest="command")
+    sub.add_parser("server", help="Run the wispy daemon")
+    sub.add_parser("toggle", help="Toggle recording on a running instance")
+    sub.add_parser("help", help="Show this help message")
+    args = parser.parse_args(argv)
+    return args.command or "help"
+
+
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "--toggle":
-        send_toggle()
-    else:
+    command = parse_args(sys.argv[1:])
+    if command == "server":
         WispyApp().run()
+    elif command == "toggle":
+        send_toggle()
+    elif command == "help":
+        parse_args(["--help"])

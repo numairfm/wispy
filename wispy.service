@@ -3,7 +3,7 @@ Description=Wispy voice-to-text daemon
 After=graphical-session.target
 
 [Service]
-ExecStart=%h/.local/bin/wispy
+ExecStart=%h/.local/bin/wispy server
 Restart=on-failure
 RestartSec=3
 

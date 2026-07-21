@@ -43,13 +43,13 @@ do_install() {
     echo "  icon    → $ICON"
 
     mkdir -p "$(dirname "$DESKTOP")"
-    sed "s|Exec=.*|Exec=$BIN|;s|Icon=.*|Icon=$ICON|" \
+    sed "s|Exec=.*|Exec=$BIN server|;s|Icon=.*|Icon=$ICON|" \
         "$SRC/$NAME.desktop" > "$DESKTOP"
     echo "  desktop → $DESKTOP"
 
     if [ -f "$SRC/$NAME.service" ]; then
         mkdir -p "$(dirname "$SERVICE")"
-        sed "s|ExecStart=.*|ExecStart=$BIN|" \
+        sed "s|ExecStart=.*|ExecStart=$BIN server|" \
             "$SRC/$NAME.service" > "$SERVICE"
         echo "  service → $SERVICE"
     fi
