@@ -23,7 +23,7 @@ Built with Python + PyQt6 — lightweight, native, Wayland/KDE Plasma.
 git clone <repo> && cd wispy
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
-./wispy.sh server
+./scripts/wispy.sh server
 ```
 
 Click tray icon → Settings → enter your Groq API key.
@@ -43,16 +43,16 @@ wispy toggle   # toggle recording on a running instance
 source .venv/bin/activate
 
 # Build + install (binary, icon, desktop file, systemd service)
-./setup.sh install --build
+./scripts/setup.sh install --build
 
 # Install without building (uses wispy.sh launcher)
-./setup.sh install
+./scripts/setup.sh install
 
 # Remove everything
-./setup.sh uninstall
+./scripts/setup.sh uninstall
 ```
 
-Manual build only: `./build.sh` → `dist/wispy`
+Manual build only: `./scripts/build.sh` → `dist/wispy`
 
 Check service: `systemctl --user status wispy`
 
@@ -76,6 +76,7 @@ Tray icon → right-click → **Settings…** to configure:
 - Language (optional, e.g. `en`)
 - Input device (system default or specific mic)
 - Copy transcribed text to clipboard (on/off)
+- Clean and format text with AI (on/off)
 
 Or edit `~/.config/wispy/config.json`:
 
@@ -85,7 +86,8 @@ Or edit `~/.config/wispy/config.json`:
   "groq_model": "whisper-large-v3",
   "language": "en",
   "input_device": "",
-  "copy_to_clipboard": false
+  "copy_to_clipboard": false,
+  "clean_text": false
 }
 ```
 
