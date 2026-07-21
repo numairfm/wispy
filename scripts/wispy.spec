@@ -2,10 +2,10 @@
 
 
 a = Analysis(
-    ['main.py'],
+    ['src/main.py'],
     pathex=[],
     binaries=[],
-    datas=[('overlay.py', '.'), ('wispy.svg', '.')],
+    datas=[('../assets/wispy.svg', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

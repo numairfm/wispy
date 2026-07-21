@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 
 if ! command -v pyinstaller &>/dev/null; then
     echo "Installing PyInstaller..."
@@ -13,9 +13,8 @@ pyinstaller \
     --onefile \
     --noconfirm \
     --clean \
-    --add-data "overlay.py:." \
-    --add-data "wispy.svg:." \
-    main.py
+    --add-data "../assets/wispy.svg:." \
+    src/main.py
 
 echo ""
 echo "Done: dist/wispy"

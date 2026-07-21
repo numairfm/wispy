@@ -8,7 +8,7 @@ TOGGLE_BIN="$HOME/.local/bin/$NAME-toggle.sh"
 ICON="$HOME/.local/share/icons/hicolor/scalable/apps/$NAME.svg"
 DESKTOP="$HOME/.local/share/applications/$NAME.desktop"
 SERVICE="$HOME/.config/systemd/user/$NAME.service"
-SRC="$(cd "$(dirname "$0")" && pwd)"
+SRC="$(cd "$(dirname "$0")/.." && pwd)"
 
 usage() {
     echo "Usage: $0 {install|uninstall} [--build]"
@@ -17,7 +17,7 @@ usage() {
 
 do_build() {
     echo "Building $NAME..."
-    "$SRC/build.sh"
+    "$SRC/scripts/build.sh"
 }
 
 do_install() {
@@ -30,7 +30,7 @@ do_install() {
     mkdir -p "$(dirname "$BIN")"
 
     # Install the toggle script (fast path — system python3, no PyInstaller extraction)
-    cp "$SRC/$NAME-toggle.sh" "$TOGGLE_BIN"
+    cp "$SRC/scripts/$NAME-toggle.sh" "$TOGGLE_BIN"
     chmod +x "$TOGGLE_BIN"
     echo "  toggle  → $TOGGLE_BIN"
 
@@ -38,8 +38,8 @@ do_install() {
     if [ -f "$SRC/dist/$NAME" ]; then
         cp "$SRC/dist/$NAME" "$SERVER_BIN"
         echo "  binary  → $SERVER_BIN"
-    elif [ -f "$SRC/$NAME.sh" ]; then
-        cp "$SRC/$NAME.sh" "$SERVER_BIN"
+    elif [ -f "$SRC/scripts/$NAME.sh" ]; then
+        cp "$SRC/scripts/$NAME.sh" "$SERVER_BIN"
         chmod +x "$SERVER_BIN"
         echo "  launcher → $SERVER_BIN"
     else
@@ -61,18 +61,18 @@ WRAPPER
     echo "  wrapper → $BIN"
 
     mkdir -p "$(dirname "$ICON")"
-    cp "$SRC/$NAME.svg" "$ICON"
+    cp "$SRC/assets/$NAME.svg" "$ICON"
     echo "  icon    → $ICON"
 
     mkdir -p "$(dirname "$DESKTOP")"
     sed "s|Exec=.*|Exec=$SERVER_BIN server|;s|Icon=.*|Icon=$ICON|" \
-        "$SRC/$NAME.desktop" > "$DESKTOP"
+        "$SRC/system/$NAME.desktop" > "$DESKTOP"
     echo "  desktop → $DESKTOP"
 
-    if [ -f "$SRC/$NAME.service" ]; then
+    if [ -f "$SRC/system/$NAME.service" ]; then
         mkdir -p "$(dirname "$SERVICE")"
         sed "s|ExecStart=.*|ExecStart=$SERVER_BIN server|" \
-            "$SRC/$NAME.service" > "$SERVICE"
+            "$SRC/system/$NAME.service" > "$SERVICE"
         echo "  service → $SERVICE"
     fi
 

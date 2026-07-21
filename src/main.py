@@ -16,7 +16,12 @@ CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / 
 CONFIG_FILE = CONFIG_DIR / "config.json"
 SOCKET_DIR = Path(os.environ.get("XDG_RUNTIME_DIR", Path.home() / ".cache")) / "wispy"
 SOCKET_PATH = SOCKET_DIR / "wispy.sock"
-ICON_SVG = Path(__file__).parent / "wispy.svg"
+def _icon_path():
+    if hasattr(sys, '_MEIPASS'):
+        return Path(sys._MEIPASS) / "wispy.svg"
+    return Path(__file__).parent.parent / "assets" / "wispy.svg"
+
+ICON_SVG = _icon_path()
 
 MODELS = [
     "whisper-large-v3",
