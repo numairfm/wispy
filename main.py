@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 import os, sys, json, signal, tempfile, wave, socket, threading, queue, argparse, time
 from pathlib import Path
 
-import numpy as np
-import sounddevice as sd
-import groq
 from PyQt6.QtWidgets import (
     QApplication, QSystemTrayIcon, QMenu, QDialog,
     QVBoxLayout, QHBoxLayout, QFormLayout,
@@ -13,8 +11,6 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QTimer, QObject, pyqtSignal
 from PyQt6.QtGui import QIcon, QPixmap, QColor, QPainter, QPen
-
-from overlay import OverlayWindow
 
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "wispy"
 CONFIG_FILE = CONFIG_DIR / "config.json"
@@ -123,6 +119,7 @@ class SettingsDialog(QDialog):
         # ── Audio ──
         form.addRow(self._section("Audio"))
 
+        import sounddevice as sd
         self.device = QComboBox()
         self.device.addItem("System Default", "")
         for i, d in enumerate(sd.query_devices()):
@@ -197,6 +194,7 @@ class WispyApp(QObject):
         self._start_time = 0.0
         self._audio_lock = threading.Lock()
 
+        from overlay import OverlayWindow
         self.overlay = OverlayWindow(self._stop_recording,
                                      lambda: self.current_level)
         self._ipc_queue: queue.Queue = queue.Queue()
@@ -298,6 +296,7 @@ class WispyApp(QObject):
             self._start_recording()
 
     def _start_recording(self):
+        import sounddevice as sd
         self.audio_buffer = []
         self.current_level = 0.0
         self._rms_buf = [0.0] * 20
@@ -325,6 +324,7 @@ class WispyApp(QObject):
         self.overlay.show()
 
     def _audio_cb(self, indata, frames, time_info, status):
+        import numpy as np
         with self._audio_lock:
             if not self.recording:
                 return
@@ -362,6 +362,8 @@ class WispyApp(QObject):
     # ── transcription & injection ───────────────────────────────
 
     def _transcribe_and_inject(self, buffer):
+        import numpy as np
+        import groq
         if not buffer or len(buffer) < 5:
             return
         try:
