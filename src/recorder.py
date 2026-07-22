@@ -17,8 +17,9 @@ def resolve_device(name, devices=None):
 
 
 class Recorder:
-    def __init__(self, device_name=""):
+    def __init__(self, device_name="", on_error=None):
         self.device_name = device_name
+        self.on_error = on_error
         self._recording = False
         self._audio_buffer = None
         self._stream = None
@@ -62,6 +63,8 @@ class Recorder:
         except Exception as e:
             self._recording = False
             self.last_error = str(e)
+            if self.on_error:
+                self.on_error(str(e))
 
     def stop(self):
         with self._audio_lock:

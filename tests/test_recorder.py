@@ -137,6 +137,20 @@ def test_stop_returns_none_when_not_recording():
     r._recording = False
     assert r.stop() is None
 
+def test_start_calls_on_error_on_failure():
+    errors = []
+    r = Recorder(on_error=lambda msg: errors.append(msg))
+    mock_sd = MagicMock()
+    mock_sd.InputStream.side_effect = Exception("no device")
+    mock_sd.query_devices.return_value = []
+    with patch("recorder.sd", mock_sd):
+        r.start()
+        time.sleep(0.2)
+    assert r._recording is False
+    assert len(errors) == 1
+    assert "no device" in errors[0]
+
+
 def test_wispyapp_has_recorder():
     """WispyApp should reference a Recorder instance."""
     import importlib

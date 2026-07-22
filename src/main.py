@@ -200,7 +200,10 @@ class WispyApp(QObject):
         self._running = True
 
         from recorder import Recorder
-        self.recorder = Recorder(device_name=self.config.get("input_device", ""))
+        self.recorder = Recorder(
+            device_name=self.config.get("input_device", ""),
+            on_error=lambda msg: self._rec_error.emit(msg),
+        )
 
         from overlay import OverlayWindow
         self.overlay = OverlayWindow(self._stop_recording,
