@@ -32,6 +32,7 @@ class Recorder:
         self._audio_lock = threading.Lock()
         self._slice_buffer = []
         self._silence_start = None
+        self._silence_callbacks = 0
         self.on_pause = None
 
     def level(self):
@@ -51,6 +52,7 @@ class Recorder:
         self.last_error = None
         self._slice_buffer = []
         self._silence_start = None
+        self._silence_callbacks = 0
         threading.Thread(target=self._open_stream, daemon=True).start()
 
     def _open_stream(self):
@@ -111,22 +113,23 @@ class Recorder:
         self._current_level = self._current_level * 0.55 + raw * 0.45
 
         # pause detection — must hold lock for _slice_buffer/_silence_start
+        # ponytail: require consecutive silent callbacks to avoid noise spikes
+        # resetting the timer. At ~15 callbacks/sec, SILENCE_CALLBACKS=15 ≈ 1s
+        SILENCE_CALLBACKS = 15
         slice_data = None
         now = time.monotonic()
         with self._audio_lock:
             if self._current_level < self.SILENCE_THRESHOLD:
-                if self._silence_start is None:
-                    self._silence_start = now
-                    print(f"[wispy] silence start, level={self._current_level:.6f}", flush=True)
-                elif now - self._silence_start >= self.PAUSE_DURATION:
+                self._silence_callbacks += 1
+                if self._silence_callbacks >= SILENCE_CALLBACKS:
                     if self._slice_buffer and self.on_pause:
                         slice_data = list(self._slice_buffer)
                         self._slice_buffer = []
-                        self._silence_start = None
+                        self._silence_callbacks = 0
             else:
-                if self._silence_start is not None:
-                    print(f"[wispy] silence broken, level={self._current_level:.6f}", flush=True)
-                self._silence_start = None
+                if self._silence_callbacks > 0:
+                    print(f"[wispy] noise spike, resetting silence ({self._silence_callbacks}/{SILENCE_CALLBACKS})", flush=True)
+                self._silence_callbacks = 0
         if slice_data:
             print(f"[wispy] pause fired, {len(slice_data)} chunks", flush=True)
             self.on_pause(slice_data)
