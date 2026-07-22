@@ -150,6 +150,10 @@ class SettingsDialog(QDialog):
         self.clean_text.setChecked(config.get("clean_text", False))
         form.addRow(self.clean_text)
 
+        self.stop_keyword = QLineEdit(config.get("stop_keyword", ""))
+        self.stop_keyword.setPlaceholderText("e.g. send it, enter, done")
+        form.addRow("Stop keyword", self.stop_keyword)
+
         # ── Buttons ──
         btn_row = QHBoxLayout()
         btn_row.addStretch()
@@ -176,6 +180,7 @@ class SettingsDialog(QDialog):
         self.config["input_device"] = self.device.currentData() or ""
         self.config["copy_to_clipboard"] = self.copy_clipboard.isChecked()
         self.config["clean_text"] = self.clean_text.isChecked()
+        self.config["stop_keyword"] = self.stop_keyword.text().strip()
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         with open(CONFIG_FILE, "w") as f:
             json.dump(self.config, f, indent=2)
@@ -321,7 +326,7 @@ class WispyApp(QObject):
     def _transcribe_and_inject(self, buffer):
         from transcriber import Transcriber
         from exceptions import TranscribeError, InvalidAudioError
-        from injector import Injector, check_send_command
+        from injector import Injector, check_stop_keyword
         if not buffer:
             return
         t = Transcriber(
@@ -336,7 +341,8 @@ class WispyApp(QObject):
             text = t.transcribe(buffer)
             if not text:
                 return
-            text, should_send = check_send_command(text)
+            keyword = self.config.get("stop_keyword", "")
+            text, should_send = check_stop_keyword(text, keyword)
             if self.config.get("copy_to_clipboard"):
                 self._set_clipboard.emit(text)
             inj.inject(text, press_enter=should_send)

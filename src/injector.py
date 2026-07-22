@@ -3,25 +3,17 @@ import subprocess
 
 from exceptions import InjectError
 
-# Matches send-command phrases at the very END of transcribed text.
-# Only matches standalone "send it/that/the message" — NOT "do not send it"
-# or other mid-sentence uses. Allows preceding sentence boundary or just spaces.
-_SEND_RE = re.compile(
-    r'(?:[.!?,]\s+|and\s+)?'       # optional sentence boundary or "and"
-    r'(?<!\bdo not )'               # negative lookbehind: not "do not send"
-    r'(?<!\bdon\'t )'               # negative lookbehind: not "don't send"
-    r'(?<!\bdont )'                 # negative lookbehind: not "dont send"
-    r'send\s+'
-    r'(?:it|that|the\s+(?:message|prompt|text|command))'
-    r'\s*\.?\s*$',
-    re.IGNORECASE,
-)
 
-
-def check_send_command(text):
-    """If text ends with a send-command phrase, return (stripped_text, True).
-    Otherwise return (text, False)."""
-    m = _SEND_RE.search(text)
+def check_stop_keyword(text, keyword="send it"):
+    """If text ends with the stop keyword, return (stripped_text, True).
+    Otherwise return (text, False). The keyword is matched case-insensitively
+    only at the very end of the text, not mid-sentence."""
+    if not keyword:
+        return text, False
+    # Escape the keyword for regex, then match at end with optional punctuation
+    escaped = re.escape(keyword)
+    pattern = r'(?:[.!?,]\s+|and\s+)?' + escaped + r'\s*\.?\s*$'
+    m = re.search(pattern, text, re.IGNORECASE)
     if m:
         stripped = text[:m.start()].rstrip().rstrip(',.').strip()
         return stripped, True
