@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import os, sys, json, signal, tempfile, wave, socket, threading, argparse, time
+import os, sys, json, signal, socket, threading, argparse, time
 from pathlib import Path
 
 from PyQt6.QtWidgets import (
@@ -388,81 +388,32 @@ class WispyApp(QObject):
         except Exception:
             pass
 
-    def _clean_text(self, raw_text, key):
-        import groq
-        client = groq.Groq(api_key=key)
-        result = client.chat.completions.create(
-            model=LLM_MODEL,
-            messages=[
-                {"role": "system", "content": CLEAN_PROMPT},
-                {"role": "user", "content": raw_text},
-            ],
-            temperature=0.3,
-            max_tokens=2048,
-        )
-        cleaned = result.choices[0].message.content.strip()
-        return cleaned if cleaned else raw_text
-
     # ── transcription & injection ───────────────────────────────
 
     def _transcribe_and_inject(self, buffer):
-        import numpy as np
-        import groq
-        if not buffer or len(buffer) < 5:
+        from transcriber import Transcriber, TranscribeError, InvalidAudioError
+        from injector import Injector
+        if not buffer:
             return
+        t = Transcriber(
+            api_key=self.config.get("groq_api_key")
+                or os.environ.get("GROQ_API_KEY", ""),
+            model=self.config.get("groq_model", MODELS[0]),
+            language=self.config.get("language") or None,
+            clean=self.config.get("clean_text", False),
+        )
+        inj = Injector()
         try:
-            audio = np.concatenate(buffer, axis=0)
-            audio_int16 = (audio * 32767).astype(np.int16)
-
-            tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-            try:
-                with wave.open(tmp, "wb") as wf:
-                    wf.setnchannels(1)
-                    wf.setsampwidth(2)
-                    wf.setframerate(16000)
-                    wf.writeframes(audio_int16.tobytes())
-                tmp.close()
-
-                key = self.config.get("groq_api_key") \
-                    or os.environ.get("GROQ_API_KEY", "")
-                if not key:
-                    self._notify.emit("Wispy",
-                                      "Set GROQ_API_KEY in Settings or env")
-                    return
-
-                client = groq.Groq(api_key=key)
-                with open(tmp.name, "rb") as f:
-                    result = client.audio.transcriptions.create(
-                        model=self.config.get("groq_model", MODELS[0]),
-                        file=f,
-                        language=self.config.get("language") or None,
-                    )
-                text = result.text.strip()
-                if text:
-                    if self.config.get("clean_text") and len(text.split()) >= 5:
-                        try:
-                            text = self._clean_text(text, key)
-                        except Exception:
-                            pass
-                    if self.config.get("copy_to_clipboard"):
-                        self._set_clipboard.emit(text)
-                    import subprocess
-                    try:
-                        subprocess.run(["ydotool", "type", "-d", "1", "-H", "1", text],
-                                       check=True, capture_output=True,
-                                       timeout=60)
-                    except FileNotFoundError:
-                        self._notify.emit("Wispy",
-                                          "ydotool not found — install it")
-                    except subprocess.CalledProcessError as e:
-                        self._notify.emit("Wispy", f"Type failed: {e}")
-            finally:
-                try:
-                    os.unlink(tmp.name)
-                except OSError:
-                    pass
+            text = t.transcribe(buffer)
+            if not text:
+                return
+            if self.config.get("copy_to_clipboard"):
+                self._set_clipboard.emit(text)
+            inj.inject(text)
+        except InvalidAudioError:
+            pass
         except Exception as e:
-            self._notify.emit("Wispy", f"Error: {e}")
+            self._notify.emit("Wispy", str(e))
 
     def quit(self):
         self._running = False
