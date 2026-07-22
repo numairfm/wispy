@@ -160,6 +160,20 @@ def test_inject_raises_on_failure():
             pass
 
 
+def test_inject_raises_on_process_error():
+    from unittest.mock import patch
+    import subprocess
+    from injector import Injector, InjectError
+    inj = Injector()
+    with patch("subprocess.run") as mock_run:
+        mock_run.side_effect = subprocess.CalledProcessError(1, "ydotool")
+        try:
+            inj.inject("hi")
+            assert False, "should have raised"
+        except InjectError:
+            pass
+
+
 def test_copy_calls_clipboard():
     from unittest.mock import patch, MagicMock
     from injector import Injector

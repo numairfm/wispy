@@ -2,7 +2,8 @@
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from main import parse_args, MIN_DURATION, LLM_MODEL, CLEAN_PROMPT
+from main import parse_args, MIN_DURATION, LLM_MODEL
+from transcriber import CLEAN_PROMPT
 
 def test_server():
     assert parse_args(["server"]) == "server"
