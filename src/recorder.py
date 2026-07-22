@@ -1,6 +1,7 @@
 import threading
 import time
 
+import numpy as np
 import sounddevice as sd
 
 
@@ -63,4 +64,13 @@ class Recorder:
             self.last_error = str(e)
 
     def _audio_cb(self, indata, frames, time_info, status):
-        pass  # ponytail: implemented in task 4
+        with self._audio_lock:
+            if not self._recording:
+                return
+            self._audio_buffer.append(indata.copy())
+        rms = float(np.sqrt(np.mean(indata ** 2)))
+        self._rms_buf = self._rms_buf[1:] + [rms]
+        noise = min(self._rms_buf) if self._rms_buf else rms
+        signal = max(rms - noise, 0.0)
+        raw = min(signal * 60.0, 1.0) if noise > 0.0001 else 0.0
+        self._current_level = self._current_level * 0.55 + raw * 0.45

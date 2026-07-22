@@ -102,3 +102,22 @@ def test_start_stream_failure_sets_error():
     time.sleep(0.1)
     assert r._recording is False
     assert r.last_error == "no device"
+
+import numpy as np
+
+def test_audio_cb_appends_and_levels():
+    r = Recorder()
+    r._recording = True
+    r._audio_buffer = []
+    data = np.zeros((100, 1), dtype=np.float32)
+    r._audio_cb(data, 100, None, None)
+    assert len(r._audio_buffer) == 1
+    assert r.level() == 0.0
+
+def test_audio_cb_ignores_when_not_recording():
+    r = Recorder()
+    r._recording = False
+    r._audio_buffer = []
+    data = np.zeros((100, 1), dtype=np.float32)
+    r._audio_cb(data, 100, None, None)
+    assert len(r._audio_buffer) == 0
