@@ -562,6 +562,10 @@ class WispyApp(QObject):
                 self._pending_keyword = True
             self._injection_queue.put((text, should_send))
             self._process_injection_queue()
+            if should_send:
+                # ponytail: stop directly — the pause that triggered this
+                # transcription IS the "pause after keyword"
+                self._stop_signal.emit()
         except InvalidAudioError:
             pass
         except Exception as e:
