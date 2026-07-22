@@ -117,12 +117,16 @@ class Recorder:
             if self._current_level < self.SILENCE_THRESHOLD:
                 if self._silence_start is None:
                     self._silence_start = now
+                    print(f"[wispy] silence start, level={self._current_level:.6f}", flush=True)
                 elif now - self._silence_start >= self.PAUSE_DURATION:
                     if self._slice_buffer and self.on_pause:
                         slice_data = list(self._slice_buffer)
                         self._slice_buffer = []
                         self._silence_start = None
             else:
+                if self._silence_start is not None:
+                    print(f"[wispy] silence broken, level={self._current_level:.6f}", flush=True)
                 self._silence_start = None
         if slice_data:
+            print(f"[wispy] pause fired, {len(slice_data)} chunks", flush=True)
             self.on_pause(slice_data)
