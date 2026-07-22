@@ -116,6 +116,23 @@ def test_clean_falls_back_on_error():
     assert result == "one two three four five six"
 
 
+def test_transcribe_end_to_end():
+    """Full pipeline: encode → whisper → clean → return text."""
+    from unittest.mock import patch, MagicMock
+    from transcriber import Transcriber
+    import numpy as np
+    t = Transcriber(api_key="test-key", model="m", language=None, clean=False)
+    chunks = [np.zeros((16000, 1), dtype=np.float32) for _ in range(5)]
+    mock_client = MagicMock()
+    mock_result = MagicMock()
+    mock_result.text = "hello world"
+    mock_client.audio.transcriptions.create.return_value = mock_result
+    with patch("transcriber.groq") as mock_groq:
+        mock_groq.Groq.return_value = mock_client
+        result = t.transcribe(chunks)
+    assert result == "hello world"
+
+
 if __name__ == "__main__":
     test_hierarchy()
     test_hierarchy_not_each_other()
