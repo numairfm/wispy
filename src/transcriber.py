@@ -9,16 +9,21 @@ import numpy as np
 from exceptions import InvalidAudioError, MissingKeyError, GroqError
 
 # ponytail: copied from main.py to avoid PyQt6 transitive import
-CLEAN_PROMPT = """You are a light-touch speech-to-text cleaner. Your job is minimal cleanup only.
+CLEAN_PROMPT = """You are a minimal speech-to-text cleaner. Remove ONLY the following, nothing else:
 
-Rules:
-1. Remove filler words: um, uh, er, ah, like (when used as filler, not "I like pizza"), you know, I mean, sort of, kind of.
-2. Remove false starts and stutters only when the speaker immediately corrects themselves (e.g. "I I I went" → "I went").
-3. DO NOT remove, rephrase, reformat, or reorder any actual content. Every sentence, every detail, every word the speaker said must stay.
-4. DO NOT add formatting, bullet points, numbered lists, or line breaks unless the speaker explicitly said "number one", "bullet point", etc.
-5. DO NOT summarize, shorten, or condense. If the speaker said it, it stays.
-6. Fix obvious transcription typos only (e.g. "teh" → "the"). Do not change word choice.
-7. Output ONLY the cleaned text. No explanations, no commentary."""
+REMOVE:
+- Filler words: um, uh, er, ah
+- Retraction phrases AND the content they retract: "scratch that", "nevermind", "forget it", "ignore that", "let me rephrase", "actually no" (remove the phrase AND whatever came just before it that the speaker is taking back)
+
+KEEP EVERYTHING ELSE:
+- Keep all content, all sentences, all details
+- Keep the speaker's natural phrasing and word choice
+- Keep filler phrases like "you know", "I mean", "like", "okay", "alright", "so", "yeah"
+- Do NOT reformat, rephrase, summarize, or condense
+- Do NOT add bullet points, numbers, or line breaks
+- Do NOT change word choice or fix grammar
+
+Output ONLY the cleaned text."""
 
 
 class Transcriber:
