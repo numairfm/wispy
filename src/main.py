@@ -535,16 +535,17 @@ class WispyApp(QObject):
         from injector import check_stop_keyword
         if not chunks:
             return
-        t = Transcriber(
-            api_key=self.config.get("groq_api_key")
-                or os.environ.get("GROQ_API_KEY", ""),
-            model=self.config.get("groq_model", MODELS[0]),
-            language=self.config.get("language") or None,
-            clean=self.config.get("clean_text", False),
-            engine_mode=self.config.get("engine_mode", "online"),
-            local_model=self.config.get("local_model", LOCAL_MODELS[0]),
-        )
+        self.overlay._transcribing_signal.emit(True)
         try:
+            t = Transcriber(
+                api_key=self.config.get("groq_api_key")
+                    or os.environ.get("GROQ_API_KEY", ""),
+                model=self.config.get("groq_model", MODELS[0]),
+                language=self.config.get("language") or None,
+                clean=self.config.get("clean_text", False),
+                engine_mode=self.config.get("engine_mode", "online"),
+                local_model=self.config.get("local_model", LOCAL_MODELS[0]),
+            )
             text = t.transcribe(chunks)
             if not text:
                 return
@@ -558,6 +559,8 @@ class WispyApp(QObject):
             pass
         except Exception as e:
             self._notify.emit("Wispy", str(e))
+        finally:
+            self.overlay._transcribing_signal.emit(False)
 
     def _process_injection_queue(self):
         from injector import Injector
