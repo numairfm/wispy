@@ -4,19 +4,18 @@ import subprocess
 from exceptions import InjectError
 
 
-def check_stop_keyword(text, keyword="send it"):
-    """If text ends with the stop keyword, return (stripped_text, True).
-    Otherwise return (text, False). The keyword is matched case-insensitively
-    only at the very end of the text, not mid-sentence."""
+def check_stop_keyword(text, keyword=""):
+    """If text ends with any of the stop keywords, return (stripped_text, True).
+    Keywords can be comma-separated. Otherwise return (text, False)."""
     if not keyword:
         return text, False
-    # Escape the keyword for regex, then match at end with optional punctuation
-    escaped = re.escape(keyword)
-    pattern = r'(?:[.!?,]\s+|and\s+)?' + escaped + r'\s*\.?\s*$'
-    m = re.search(pattern, text, re.IGNORECASE)
-    if m:
-        stripped = text[:m.start()].rstrip().rstrip(',.').strip()
-        return stripped, True
+    for kw in [k.strip() for k in keyword.split(",") if k.strip()]:
+        escaped = re.escape(kw)
+        pattern = r'(?:[.!?,]\s+|and\s+)?' + escaped + r'\s*\.?\s*$'
+        m = re.search(pattern, text, re.IGNORECASE)
+        if m:
+            stripped = text[:m.start()].rstrip().rstrip(',.').strip()
+            return stripped, True
     return text, False
 
 
