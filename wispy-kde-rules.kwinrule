@@ -1,0 +1,13 @@
+[Wispy]
+Description=Wispy
+above=true
+aboverule=2
+desktops=\\0
+desktopsrule=2
+ignoregeometry=true
+ignoregeometryrule=2
+position=858,975
+positionrule=2
+title=Wispy
+titlematch=1
+wmclassmatch=3
