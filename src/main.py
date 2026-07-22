@@ -321,7 +321,7 @@ class WispyApp(QObject):
     def _transcribe_and_inject(self, buffer):
         from transcriber import Transcriber
         from exceptions import TranscribeError, InvalidAudioError
-        from injector import Injector
+        from injector import Injector, check_send_command
         if not buffer:
             return
         t = Transcriber(
@@ -336,9 +336,10 @@ class WispyApp(QObject):
             text = t.transcribe(buffer)
             if not text:
                 return
+            text, should_send = check_send_command(text)
             if self.config.get("copy_to_clipboard"):
                 self._set_clipboard.emit(text)
-            inj.inject(text)
+            inj.inject(text, press_enter=should_send)
         except InvalidAudioError:
             pass
         except Exception as e:
