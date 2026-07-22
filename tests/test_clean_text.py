@@ -28,7 +28,7 @@ import re
 
 def clean(text):
     # Stage 1: regex removes fillers and retractions
-    text = re.sub(r'\b(um|uh|er|ah)\b\s*', ' ', text, flags=re.IGNORECASE)
+    text = re.sub(r'\b(u+m+|e+r+|a+h+)\b\.?\s*', ' ', text, flags=re.IGNORECASE)
     for phrase in [r'scratch that', r'never\s*mind', r'forget it', r'ignore that']:
         text = re.sub(r'[^.]*?\b' + phrase + r'\b\.?\s*', '', text, flags=re.IGNORECASE)
     text = re.sub(r'  +', ' ', text).strip()

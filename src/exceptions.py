@@ -10,5 +10,8 @@ class GroqError(TranscribeError):
 class InvalidAudioError(TranscribeError):
     pass
 
+class LocalModelNotFoundError(TranscribeError):
+    pass
+
 class InjectError(TranscribeError):
     pass

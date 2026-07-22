@@ -7,9 +7,9 @@ from PyQt6.QtWidgets import (
     QApplication, QSystemTrayIcon, QMenu, QDialog,
     QVBoxLayout, QHBoxLayout, QFormLayout,
     QLineEdit, QComboBox, QPushButton, QCheckBox,
-    QLabel,
+    QLabel, QFileDialog, QProgressBar,
 )
-from PyQt6.QtCore import Qt, QObject, pyqtSignal, QSocketNotifier
+from PyQt6.QtCore import Qt, QObject, pyqtSignal, QSocketNotifier, QThread
 from PyQt6.QtGui import QIcon, QPixmap, QColor, QPainter, QPen
 
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "wispy"
@@ -28,6 +28,28 @@ MODELS = [
     "whisper-large-v3-turbo",
     "distil-whisper-large-v3-en",
 ]
+
+LOCAL_MODELS = [
+    "tiny",      # ~75MB,  fastest, lowest accuracy
+    "tiny.en",   # ~75MB,  fastest, English-only
+    "base",      # ~150MB, fast, multilingual
+    "base.en",   # ~150MB, fast, English-only
+    "small",     # ~500MB, balanced, multilingual
+    "small.en",  # ~500MB, balanced, English-only
+    "medium",    # ~1.5GB, high accuracy, multilingual
+    "medium.en", # ~1.5GB, high accuracy, English-only
+    "large-v1",  # ~3GB,   best v1, multilingual
+    "large-v2",  # ~3GB,   best v2, multilingual
+    "large-v3",  # ~3GB,   best v3, multilingual
+]
+
+LOCAL_MODEL_SIZES = {
+    "tiny": "~75MB", "tiny.en": "~75MB",
+    "base": "~150MB", "base.en": "~150MB",
+    "small": "~500MB", "small.en": "~500MB",
+    "medium": "~1.5GB", "medium.en": "~1.5GB",
+    "large-v1": "~3GB", "large-v2": "~3GB", "large-v3": "~3GB",
+}
 
 MIN_DURATION = 2.0
 
@@ -89,6 +111,46 @@ def send_toggle():
         sys.exit(1)
 
 
+# ── model download worker ───────────────────────────────────────
+
+class DownloadWorker(QThread):
+    progress = pyqtSignal(int)
+    finished = pyqtSignal(str)
+    error = pyqtSignal(str)
+
+    def __init__(self, model_name, dest_dir, parent=None):
+        super().__init__(parent)
+        self.model_name = model_name
+        self.dest_dir = dest_dir
+
+    def run(self):
+        try:
+            import io, contextlib
+            from huggingface_hub import snapshot_download
+            from huggingface_hub.utils import tqdm as hf_tqdm
+
+            worker = self
+            repo_id = f"Systran/faster-whisper-{self.model_name}"
+
+            class ProgressTqdm(hf_tqdm):
+                def update(self, n=1):
+                    super().update(n)
+                    if self.total and self.total > 0:
+                        worker.progress.emit(int(self.n / self.total * 100))
+
+            kwargs = {"tqdm_class": ProgressTqdm}
+            if self.dest_dir:
+                kwargs["local_dir"] = self.dest_dir
+
+            # ponytail: suppress noisy huggingface_hub console output
+            with contextlib.redirect_stdout(io.StringIO()), \
+                 contextlib.redirect_stderr(io.StringIO()):
+                path = snapshot_download(repo_id, **kwargs)
+            self.finished.emit(path)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
 # ── settings dialog ─────────────────────────────────────────────
 
 class SettingsDialog(QDialog):
@@ -107,6 +169,13 @@ class SettingsDialog(QDialog):
         # ── Transcription ──
         form.addRow(self._section("Transcription"))
 
+        self.engine_mode = QComboBox()
+        self.engine_mode.addItems(["Online Only (Groq)", "Offline Only (Local)", "Hybrid (Cloud + Fallback)"])
+        mode_map = {"online": 0, "offline": 1, "hybrid": 2}
+        self.engine_mode.setCurrentIndex(mode_map.get(config.get("engine_mode", "online"), 0))
+        self.engine_mode.currentIndexChanged.connect(self._on_engine_changed)
+        form.addRow("Engine", self.engine_mode)
+
         self.api_key = QLineEdit(config.get("groq_api_key", ""))
         self.api_key.setEchoMode(QLineEdit.EchoMode.Password)
         self.api_key.setPlaceholderText("gsk_...")
@@ -122,6 +191,32 @@ class SettingsDialog(QDialog):
         self.language = QLineEdit(config.get("language", ""))
         self.language.setPlaceholderText("Optional, e.g. en")
         form.addRow("Language", self.language)
+
+        # ── Local Model ──
+        form.addRow(self._section("Local Model"))
+
+        self.local_model = QComboBox()
+        self.local_model.addItems(LOCAL_MODELS)
+        cur_local = config.get("local_model", LOCAL_MODELS[0])
+        if cur_local in LOCAL_MODELS:
+            self.local_model.setCurrentText(cur_local)
+        self.local_model.currentTextChanged.connect(self._on_local_model_changed)
+        form.addRow("Model", self.local_model)
+
+        dl_row = QHBoxLayout()
+        self.dl_btn = QPushButton("Download")
+        self.dl_btn.clicked.connect(self._download_model)
+        self.dl_progress = QProgressBar()
+        self.dl_progress.setVisible(False)
+        self.dl_progress.setRange(0, 100)
+        dl_row.addWidget(self.dl_btn)
+        dl_row.addWidget(self.dl_progress)
+        form.addRow(dl_row)
+
+        self.model_status = QLabel("")
+        self.model_status.setStyleSheet("color: gray; font-size: 11px;")
+        form.addRow(self.model_status)
+        self._update_model_status()
 
         # ── Audio ──
         form.addRow(self._section("Audio"))
@@ -153,9 +248,15 @@ class SettingsDialog(QDialog):
         self.clean_text.setChecked(config.get("clean_text", False))
         form.addRow(self.clean_text)
 
+        self.stop_keyword_cb = QCheckBox("Enable stop keyword (press Enter when keyword detected)")
+        self.stop_keyword_cb.setChecked(bool(config.get("stop_keyword", "")))
+        self.stop_keyword_cb.toggled.connect(self._on_stop_keyword_toggled)
+        form.addRow(self.stop_keyword_cb)
+
         self.stop_keyword = QLineEdit(config.get("stop_keyword", ""))
         self.stop_keyword.setPlaceholderText("e.g. send it, enter, done")
         form.addRow("Stop keyword", self.stop_keyword)
+        self._on_stop_keyword_toggled(self.stop_keyword_cb.isChecked())
 
         # ── Buttons ──
         btn_row = QHBoxLayout()
@@ -169,6 +270,8 @@ class SettingsDialog(QDialog):
         btn_row.addWidget(save)
         form.addRow(btn_row)
 
+        self._on_engine_changed(self.engine_mode.currentIndex())
+
     def _section(self, text):
         lbl = QLabel(text)
         f = lbl.font()
@@ -176,14 +279,76 @@ class SettingsDialog(QDialog):
         lbl.setFont(f)
         return lbl
 
+    def _on_engine_changed(self, idx):
+        online = idx != 1  # enabled for online(0) and hybrid(2), disabled for offline(1)
+        self.api_key.setEnabled(online)
+        self.model.setEnabled(online)
+        self.language.setEnabled(online)
+
+    def _on_stop_keyword_toggled(self, checked):
+        self.stop_keyword.setEnabled(checked)
+
+    def _on_local_model_changed(self, name):
+        self._update_model_status()
+
+    def _update_model_status(self):
+        import os, glob
+        name = self.local_model.currentText()
+        size = LOCAL_MODEL_SIZES.get(name, "")
+        pattern = os.path.expanduser(
+            f"~/.cache/huggingface/hub/models--Systran--faster-whisper-{name}")
+        has_model = False
+        if os.path.isdir(pattern):
+            for root, dirs, files in os.walk(pattern):
+                if any(f == 'model.bin' or f.endswith('.ct2') for f in files):
+                    has_model = True
+                    break
+        if has_model:
+            self.model_status.setText(f"✓ {name} ready")
+            self.model_status.setStyleSheet("color: green; font-size: 11px;")
+            self.dl_btn.setText("Re-download")
+        else:
+            self.model_status.setText(f"{name} ({size}) — not downloaded yet")
+            self.model_status.setStyleSheet("color: gray; font-size: 11px;")
+            self.dl_btn.setText("Download")
+
+    def _download_model(self):
+        name = self.local_model.currentText()
+        self.dl_btn.setEnabled(False)
+        self.dl_progress.setValue(0)
+        self.dl_progress.setVisible(True)
+        self.model_status.setText(f"Downloading {name}…")
+        self.model_status.setStyleSheet("color: gray; font-size: 11px;")
+
+        self._download_worker = DownloadWorker(name, "")
+        self._download_worker.progress.connect(self.dl_progress.setValue)
+        self._download_worker.finished.connect(self._on_download_done)
+        self._download_worker.error.connect(self._on_download_error)
+        self._download_worker.start()
+
+    def _on_download_done(self, path):
+        self.dl_btn.setEnabled(True)
+        self.dl_progress.setVisible(False)
+        self._update_model_status()
+
+    def _on_download_error(self, msg):
+        self.dl_btn.setEnabled(True)
+        self.dl_progress.setVisible(False)
+        self.model_status.setText(f"Download failed: {msg}")
+        self.model_status.setStyleSheet("color: red; font-size: 11px;")
+
     def _save(self):
+        mode_idx = self.engine_mode.currentIndex()
+        mode_map = {0: "online", 1: "offline", 2: "hybrid"}
+        self.config["engine_mode"] = mode_map[mode_idx]
         self.config["groq_api_key"] = self.api_key.text().strip()
         self.config["groq_model"] = self.model.currentText()
         self.config["language"] = self.language.text().strip()
+        self.config["local_model"] = self.local_model.currentText()
         self.config["input_device"] = self.device.currentData() or ""
         self.config["copy_to_clipboard"] = self.copy_clipboard.isChecked()
         self.config["clean_text"] = self.clean_text.isChecked()
-        self.config["stop_keyword"] = self.stop_keyword.text().strip()
+        self.config["stop_keyword"] = self.stop_keyword.text().strip() if self.stop_keyword_cb.isChecked() else ""
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         with open(CONFIG_FILE, "w") as f:
             json.dump(self.config, f, indent=2)
@@ -206,6 +371,7 @@ class WispyApp(QObject):
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         self.config = self._load_config()
         self._running = True
+        self._warmup_local_model()
 
         from recorder import Recorder
         self.recorder = Recorder(
@@ -240,11 +406,27 @@ class WispyApp(QObject):
     def _load_config(self) -> dict:
         d = {"groq_api_key": os.environ.get("GROQ_API_KEY", ""),
              "groq_model": MODELS[0], "language": "",
-             "clean_text": False}
+             "clean_text": False, "engine_mode": "online",
+             "local_model": LOCAL_MODELS[0]}
         if CONFIG_FILE.exists():
             with open(CONFIG_FILE) as f:
                 d.update(json.load(f))
         return d
+
+    def _warmup_local_model(self):
+        """Load local model in background if offline/hybrid mode active."""
+        mode = self.config.get("engine_mode", "online")
+        if mode in ("offline", "hybrid"):
+            threading.Thread(target=self._do_warmup, daemon=True).start()
+
+    def _do_warmup(self):
+        try:
+            from local_transcriber import LocalTranscriber
+            t = LocalTranscriber(
+                model_name=self.config.get("local_model", LOCAL_MODELS[0]))
+            t.warmup()
+        except Exception:
+            pass  # ponytail: model loads lazily on first use anyway
 
     # ── tray ────────────────────────────────────────────────────
 
@@ -312,7 +494,7 @@ class WispyApp(QObject):
         self.overlay.show()
 
     def _stop_recording(self):
-        buffer, remaining_slice = self.recorder.stop()
+        buffer, remaining_slice = self.recorder.stop()  # used in Task 2
         if buffer is None:
             return
         self.overlay.hide()
@@ -338,6 +520,8 @@ class WispyApp(QObject):
             model=self.config.get("groq_model", MODELS[0]),
             language=self.config.get("language") or None,
             clean=self.config.get("clean_text", False),
+            engine_mode=self.config.get("engine_mode", "online"),
+            local_model=self.config.get("local_model", LOCAL_MODELS[0]),
         )
         inj = Injector()
         try:
@@ -369,6 +553,9 @@ class WispyApp(QObject):
 
 def parse_args(argv):
     """Parse CLI arguments and return the command name."""
+    # ponytail: multiprocessing resource tracker leaks junk into sys.argv
+    known = {"server", "toggle", "help"}
+    argv = [a for a in argv if a in known]
     parser = argparse.ArgumentParser(
         prog="wispy",
         description="Voice-to-text daemon for Linux (KDE Plasma/Wayland)",

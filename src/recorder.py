@@ -110,16 +110,19 @@ class Recorder:
         raw = min(signal * 60.0, 1.0) if noise > 0.0001 else 0.0
         self._current_level = self._current_level * 0.55 + raw * 0.45
 
-        # pause detection
+        # pause detection — must hold lock for _slice_buffer/_silence_start
+        slice_data = None
         now = time.monotonic()
-        if self._current_level < self.SILENCE_THRESHOLD:
-            if self._silence_start is None:
-                self._silence_start = now
-            elif now - self._silence_start >= self.PAUSE_DURATION:
-                if self._slice_buffer and self.on_pause:
-                    slice_data = list(self._slice_buffer)
-                    self._slice_buffer = []
-                    self._silence_start = None
-                    self.on_pause(slice_data)
-        else:
-            self._silence_start = None
+        with self._audio_lock:
+            if self._current_level < self.SILENCE_THRESHOLD:
+                if self._silence_start is None:
+                    self._silence_start = now
+                elif now - self._silence_start >= self.PAUSE_DURATION:
+                    if self._slice_buffer and self.on_pause:
+                        slice_data = list(self._slice_buffer)
+                        self._slice_buffer = []
+                        self._silence_start = None
+            else:
+                self._silence_start = None
+        if slice_data:
+            self.on_pause(slice_data)
