@@ -121,3 +121,18 @@ def test_audio_cb_ignores_when_not_recording():
     data = np.zeros((100, 1), dtype=np.float32)
     r._audio_cb(data, 100, None, None)
     assert len(r._audio_buffer) == 0
+
+def test_stop_returns_buffer():
+    r = Recorder()
+    r._recording = True
+    r._audio_buffer = [np.zeros((100, 1), dtype=np.float32) for _ in range(3)]
+    r._stream = MagicMock()
+    result = r.stop()
+    assert result is not None
+    assert len(result) == 3
+    assert r._recording is False
+
+def test_stop_returns_none_when_not_recording():
+    r = Recorder()
+    r._recording = False
+    assert r.stop() is None

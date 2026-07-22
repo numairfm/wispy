@@ -63,6 +63,27 @@ class Recorder:
             self._recording = False
             self.last_error = str(e)
 
+    def stop(self):
+        with self._audio_lock:
+            if not self._recording:
+                return None
+            self._recording = False
+            buffer = self._audio_buffer
+            self._audio_buffer = None
+        stream = self._stream
+        self._stream = None
+        if stream:
+            threading.Thread(target=self._close_stream,
+                             args=(stream,), daemon=True).start()
+        return buffer
+
+    def _close_stream(self, stream):
+        try:
+            stream.stop()
+            stream.close()
+        except Exception:
+            pass
+
     def _audio_cb(self, indata, frames, time_info, status):
         with self._audio_lock:
             if not self._recording:
