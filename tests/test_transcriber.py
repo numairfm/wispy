@@ -83,6 +83,39 @@ def test_whisper_calls_groq():
     mock_client.audio.transcriptions.create.assert_called_once()
 
 
+def test_clean_skips_short_text():
+    from transcriber import Transcriber
+    t = Transcriber(api_key="k", model="m", language=None, clean=True)
+    assert t._clean("hi there") == "hi there"
+
+def test_clean_skips_when_disabled():
+    from transcriber import Transcriber
+    t = Transcriber(api_key="k", model="m", language=None, clean=False)
+    assert t._clean("one two three four five") == "one two three four five"
+
+def test_clean_calls_groq_when_enabled():
+    from unittest.mock import patch, MagicMock
+    from transcriber import Transcriber
+    t = Transcriber(api_key="k", model="m", language=None, clean=True)
+    mock_client = MagicMock()
+    mock_choice = MagicMock()
+    mock_choice.message.content = "cleaned text"
+    mock_client.chat.completions.create.return_value = MagicMock(choices=[mock_choice])
+    with patch("transcriber.groq") as mock_groq:
+        mock_groq.Groq.return_value = mock_client
+        result = t._clean("one two three four five six")
+    assert result == "cleaned text"
+
+def test_clean_falls_back_on_error():
+    from unittest.mock import patch, MagicMock
+    from transcriber import Transcriber
+    t = Transcriber(api_key="k", model="m", language=None, clean=True)
+    with patch("transcriber.groq") as mock_groq:
+        mock_groq.Groq.side_effect = Exception("api down")
+        result = t._clean("one two three four five six")
+    assert result == "one two three four five six"
+
+
 if __name__ == "__main__":
     test_hierarchy()
     test_hierarchy_not_each_other()
