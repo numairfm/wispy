@@ -68,7 +68,7 @@ class Transcriber:
         try:
             client = groq.Groq(api_key=self.api_key)
             result = client.chat.completions.create(
-                model="openai/gpt-oss-20b",
+                model="llama-3.1-8b-instant",
                 messages=[
                     {"role": "system", "content": CLEAN_PROMPT},
                     {"role": "user", "content": raw_text},

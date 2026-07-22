@@ -31,7 +31,7 @@ MODELS = [
 
 MIN_DURATION = 2.0
 
-LLM_MODEL = "openai/gpt-oss-20b"
+LLM_MODEL = "llama-3.1-8b-instant"
 
 
 # ── icon helpers ────────────────────────────────────────────────
