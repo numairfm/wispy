@@ -73,7 +73,8 @@ class Transcriber:
 
     def _remove_fillers(self, text):
         import re
-        text = re.sub(r'\b(um|uh|er|ah)\b\s*', ' ', text, flags=re.IGNORECASE)
+        # Match um, umm, uh, uhh, er, ah with optional trailing dots/ellipses
+        text = re.sub(r'\b(u+m+|e+r+|a+h+)\b\.?\s*', ' ', text, flags=re.IGNORECASE)
         # Retraction phrases — remove phrase + the clause before it up to the last period/start
         for phrase in [r'scratch that', r'never\s*mind', r'forget it', r'ignore that']:
             text = re.sub(r'[^.]*?\b' + phrase + r'\b\.?\s*', '', text, flags=re.IGNORECASE)

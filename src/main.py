@@ -146,7 +146,7 @@ class SettingsDialog(QDialog):
         self.copy_clipboard.setChecked(config.get("copy_to_clipboard", False))
         form.addRow(self.copy_clipboard)
 
-        self.clean_text = QCheckBox("Clean and format text with AI")
+        self.clean_text = QCheckBox("Clean and format text with AI (experimental)")
         self.clean_text.setChecked(config.get("clean_text", False))
         form.addRow(self.clean_text)
 
