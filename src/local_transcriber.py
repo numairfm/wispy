@@ -1,4 +1,5 @@
 import io
+import re
 import wave
 import numpy as np
 
@@ -57,6 +58,7 @@ class LocalTranscriber:
                 beam_size=5,
             )
             text = " ".join(seg.text for seg in segments).strip()
+            text = re.sub(r'  +', ' ', text)
             return text
         finally:
             try:
