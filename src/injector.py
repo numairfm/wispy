@@ -5,13 +5,15 @@ from exceptions import InjectError
 
 
 def check_stop_keyword(text, keyword=""):
-    """If text ends with any of the stop keywords, return (stripped_text, True).
+    """If text contains a stop keyword near the end, return (stripped_text, True).
     Keywords can be comma-separated. Otherwise return (text, False)."""
     if not keyword:
         return text, False
     for kw in [k.strip() for k in keyword.split(",") if k.strip()]:
         escaped = re.escape(kw)
-        pattern = r'(?:[.!?,]\s+|and\s+)?' + escaped + r'\s*\.?\s*$'
+        # match keyword near end, allowing punctuation and short trailing speech
+        gap = r'[\s.!?,;:\-]*'
+        pattern = r'(?:[.!?,]\s+|and\s+)?' + escaped + gap + r'(?:\w+' + gap + r'){0,5}\s*$'
         m = re.search(pattern, text, re.IGNORECASE)
         if m:
             stripped = text[:m.start()].rstrip().rstrip(',.').strip()
