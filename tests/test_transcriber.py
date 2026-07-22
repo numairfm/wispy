@@ -63,6 +63,26 @@ def test_transcribe_no_key_raises():
     except MissingKeyError:
         pass
 
+def test_whisper_calls_groq():
+    """_whisper should call groq client and return result.text."""
+    from unittest.mock import patch, MagicMock
+    from transcriber import Transcriber
+    t = Transcriber(api_key="test-key", model="whisper-large-v3", language="en", clean=False)
+    fake_wav = b"RIFF" + b"\x00" * 100
+
+    mock_client = MagicMock()
+    mock_result = MagicMock()
+    mock_result.text = " hello world "
+    mock_client.audio.transcriptions.create.return_value = mock_result
+
+    with patch("transcriber.groq") as mock_groq:
+        mock_groq.Groq.return_value = mock_client
+        result = t._whisper(fake_wav)
+
+    assert result == "hello world"
+    mock_client.audio.transcriptions.create.assert_called_once()
+
+
 if __name__ == "__main__":
     test_hierarchy()
     test_hierarchy_not_each_other()
