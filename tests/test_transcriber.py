@@ -51,6 +51,18 @@ def test_transcribe_short_raises():
     except InvalidAudioError:
         pass
 
+def test_transcribe_no_key_raises():
+    from transcriber import Transcriber
+    from exceptions import MissingKeyError
+    import numpy as np
+    t = Transcriber(api_key="", model="m", language=None, clean=False)
+    chunk = np.zeros((16000, 1), dtype=np.float32)
+    try:
+        t.transcribe([chunk] * 5)
+        assert False, "should have raised"
+    except MissingKeyError:
+        pass
+
 if __name__ == "__main__":
     test_hierarchy()
     test_hierarchy_not_each_other()

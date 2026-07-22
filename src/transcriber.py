@@ -2,7 +2,7 @@ import wave
 import io
 import numpy as np
 
-from exceptions import InvalidAudioError
+from exceptions import InvalidAudioError, MissingKeyError
 
 
 class Transcriber:
@@ -26,3 +26,5 @@ class Transcriber:
     def transcribe(self, chunks):
         if not chunks or len(chunks) < 5:
             raise InvalidAudioError("Recording too short")
+        if not self.api_key:
+            raise MissingKeyError("Set GROQ_API_KEY in Settings or env")
