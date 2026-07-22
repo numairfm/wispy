@@ -14,6 +14,10 @@ pyinstaller \
     --noconfirm \
     --clean \
     --add-data "assets/wispy.svg:." \
+    --hidden-import=transcriber \
+    --hidden-import=injector \
+    --hidden-import=exceptions \
+    --hidden-import=recorder \
     src/main.py
 
 echo ""

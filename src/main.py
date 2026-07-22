@@ -319,7 +319,8 @@ class WispyApp(QObject):
     # ── transcription & injection ───────────────────────────────
 
     def _transcribe_and_inject(self, buffer):
-        from transcriber import Transcriber, TranscribeError, InvalidAudioError
+        from transcriber import Transcriber
+        from exceptions import TranscribeError, InvalidAudioError
         from injector import Injector
         if not buffer:
             return
