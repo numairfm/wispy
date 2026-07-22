@@ -136,3 +136,11 @@ def test_stop_returns_none_when_not_recording():
     r = Recorder()
     r._recording = False
     assert r.stop() is None
+
+def test_wispyapp_has_recorder():
+    """WispyApp should reference a Recorder instance."""
+    import importlib
+    import main
+    importlib.reload(main)
+    assert hasattr(main.WispyApp, '_start_recording')
+    assert hasattr(main.WispyApp, '_stop_recording')

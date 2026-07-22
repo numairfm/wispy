@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import os, sys, json, signal, socket, threading, argparse, time
+import os, sys, json, signal, socket, threading, argparse
 from pathlib import Path
 
 from PyQt6.QtWidgets import (
@@ -199,17 +199,12 @@ class WispyApp(QObject):
         self.config = self._load_config()
         self._running = True
 
-        self.recording = False
-        self.audio_buffer: list[np.ndarray] | None = None
-        self.stream: sd.InputStream | None = None
-        self.current_level = 0.0
-        self._rms_buf = [0.0] * 20
-        self._start_time = 0.0
-        self._audio_lock = threading.Lock()
+        from recorder import Recorder
+        self.recorder = Recorder(device_name=self.config.get("input_device", ""))
 
         from overlay import OverlayWindow
         self.overlay = OverlayWindow(self._stop_recording,
-                                     lambda: self.current_level)
+                                     lambda: self.recorder.level())
 
         self._notify.connect(self._on_notify)
         self._set_clipboard.connect(self._on_set_clipboard)
@@ -225,7 +220,6 @@ class WispyApp(QObject):
         QApplication.clipboard().setText(text)
 
     def _on_rec_error(self, msg):
-        self.recording = False
         self.overlay.hide()
         self.tray.showMessage("Wispy", msg,
                               QSystemTrayIcon.MessageIcon.Critical, 5000)
@@ -301,79 +295,23 @@ class WispyApp(QObject):
             self._start_recording()
 
     def _start_recording(self):
-        self.audio_buffer = []
-        self.current_level = 0.0
-        self._rms_buf = [0.0] * 20
-        self._start_time = time.monotonic()
-        self.recording = True
+        self.recorder.device_name = self.config.get("input_device", "")
+        self.recorder.start()
         self.overlay.reset()
         self.overlay.show()
-        threading.Thread(target=self._open_stream, daemon=True).start()
-
-    def _open_stream(self):
-        import sounddevice as sd
-        try:
-            device = None
-            dev_name = self.config.get("input_device", "")
-            if dev_name:
-                for i, d in enumerate(sd.query_devices()):
-                    if d['name'] == dev_name and d['max_input_channels'] > 0:
-                        device = i
-                        break
-            stream = sd.InputStream(callback=self._audio_cb,
-                                    channels=1, samplerate=16000,
-                                    dtype="float32",
-                                    device=device)
-            stream.start()
-            with self._audio_lock:
-                if not self.recording:
-                    stream.stop()
-                    stream.close()
-                    return
-                self.stream = stream
-        except Exception as e:
-            self._rec_error.emit(f"Mic error: {e}")
-
-    def _audio_cb(self, indata, frames, time_info, status):
-        import numpy as np
-        with self._audio_lock:
-            if not self.recording:
-                return
-            self.audio_buffer.append(indata.copy())
-        rms = float(np.sqrt(np.mean(indata ** 2)))
-        self._rms_buf = self._rms_buf[1:] + [rms]
-        noise = min(self._rms_buf) if self._rms_buf else rms
-        signal = max(rms - noise, 0.0)
-        raw = min(signal * 60.0, 1.0) if noise > 0.0001 else 0.0
-        self.current_level = self.current_level * 0.55 + raw * 0.45
 
     def _stop_recording(self):
-        with self._audio_lock:
-            if not self.recording:
-                return
-            self.recording = False
-            buffer = self.audio_buffer
-            self.audio_buffer = None
+        buffer = self.recorder.stop()
+        if buffer is None:
+            return
         self.overlay.hide()
-        stream = self.stream
-        self.stream = None
-        if stream:
-            threading.Thread(target=self._close_stream,
-                             args=(stream,), daemon=True).start()
-        elapsed = time.monotonic() - self._start_time
+        elapsed = self.recorder.elapsed()
         if elapsed < MIN_DURATION:
             self.tray.showMessage("Wispy", "Recording too short (min 2s)",
                                   QSystemTrayIcon.MessageIcon.Information, 2000)
             return
         threading.Thread(target=self._transcribe_and_inject,
                          args=(buffer,), daemon=True).start()
-
-    def _close_stream(self, stream):
-        try:
-            stream.stop()
-            stream.close()
-        except Exception:
-            pass
 
     # ── transcription & injection ───────────────────────────────
 
@@ -404,7 +342,7 @@ class WispyApp(QObject):
 
     def quit(self):
         self._running = False
-        self._stop_recording()
+        self.recorder.stop()
         self._notifier.setEnabled(False)
         self._sock.close()
         SOCKET_PATH.unlink(missing_ok=True)
