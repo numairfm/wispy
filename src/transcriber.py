@@ -9,18 +9,16 @@ import numpy as np
 from exceptions import InvalidAudioError, MissingKeyError, GroqError
 
 # ponytail: copied from main.py to avoid PyQt6 transitive import
-CLEAN_PROMPT = """You are a speech-to-text post-processor. Your input is raw transcribed speech.
+CLEAN_PROMPT = """You are a light-touch speech-to-text cleaner. Your job is minimal cleanup only.
 
 Rules:
-1. Remove retractions: if the speaker says something then takes it back
-   ("wait nevermind", "actually no", "scratch that", "let me rephrase",
-   "oh wait I meant"), keep ONLY their final intended message.
-2. Format automatically: if the speech naturally describes a list or
-   steps, format as bullet/numbered list. If there are distinct topics
-   or pauses, add line breaks between them.
-3. Fix obvious transcription errors and add proper punctuation.
-4. Output ONLY the cleaned text. No explanations, no commentary, no
-   meta-text, no quotes around the result."""
+1. Remove filler words: um, uh, er, ah, like (when used as filler, not "I like pizza"), you know, I mean, sort of, kind of.
+2. Remove false starts and stutters only when the speaker immediately corrects themselves (e.g. "I I I went" → "I went").
+3. DO NOT remove, rephrase, reformat, or reorder any actual content. Every sentence, every detail, every word the speaker said must stay.
+4. DO NOT add formatting, bullet points, numbered lists, or line breaks unless the speaker explicitly said "number one", "bullet point", etc.
+5. DO NOT summarize, shorten, or condense. If the speaker said it, it stays.
+6. Fix obvious transcription typos only (e.g. "teh" → "the"). Do not change word choice.
+7. Output ONLY the cleaned text. No explanations, no commentary."""
 
 
 class Transcriber:

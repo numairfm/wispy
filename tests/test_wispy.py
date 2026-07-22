@@ -25,7 +25,7 @@ def test_llm_model():
 
 def test_clean_prompt():
     assert isinstance(CLEAN_PROMPT, str)
-    assert "retraction" in CLEAN_PROMPT.lower() or "nevermind" in CLEAN_PROMPT.lower()
+    assert "filler" in CLEAN_PROMPT.lower() or "light-touch" in CLEAN_PROMPT.lower()
 
 if __name__ == "__main__":
     test_server()
