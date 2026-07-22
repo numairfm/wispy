@@ -2,6 +2,8 @@ import wave
 import io
 import numpy as np
 
+from exceptions import InvalidAudioError
+
 
 class Transcriber:
     def __init__(self, api_key, model, language=None, clean=False):
@@ -20,3 +22,7 @@ class Transcriber:
             wf.setframerate(16000)
             wf.writeframes(audio_int16.tobytes())
         return buf.getvalue()
+
+    def transcribe(self, chunks):
+        if not chunks or len(chunks) < 5:
+            raise InvalidAudioError("Recording too short")

@@ -31,6 +31,26 @@ def test_encode_wav_shape():
         frames = wf.readframes(wf.getnframes())
     assert len(frames) == 16000 * 2
 
+def test_transcribe_empty_raises():
+    from transcriber import Transcriber
+    t = Transcriber(api_key="x", model="m", language=None, clean=False)
+    try:
+        t.transcribe([])
+        assert False, "should have raised"
+    except InvalidAudioError:
+        pass
+
+def test_transcribe_short_raises():
+    from transcriber import Transcriber
+    import numpy as np
+    t = Transcriber(api_key="x", model="m", language=None, clean=False)
+    chunk = np.zeros((100, 1), dtype=np.float32)
+    try:
+        t.transcribe([chunk])  # 1 chunk < 5
+        assert False, "should have raised"
+    except InvalidAudioError:
+        pass
+
 if __name__ == "__main__":
     test_hierarchy()
     test_hierarchy_not_each_other()
