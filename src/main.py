@@ -312,7 +312,7 @@ class WispyApp(QObject):
         self.overlay.show()
 
     def _stop_recording(self):
-        buffer = self.recorder.stop()
+        buffer, remaining_slice = self.recorder.stop()
         if buffer is None:
             return
         self.overlay.hide()
