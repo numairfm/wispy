@@ -525,6 +525,7 @@ class WispyApp(QObject):
 
     def _on_pause(self, slice_data):
         """Called from audio thread on pause detection. Must not block."""
+        print(f"[wispy] pause: {len(slice_data)} chunks, pending_kw={self._pending_keyword}", flush=True)
         if self._pending_keyword:
             self._pending_keyword = False
             self._stop_signal.emit()
@@ -541,7 +542,9 @@ class WispyApp(QObject):
         from exceptions import InvalidAudioError
         from injector import check_stop_keyword
         if not chunks:
+            print("[wispy] slice: empty chunks, skipping", flush=True)
             return
+        print(f"[wispy] slice: transcribing {len(chunks)} chunks...", flush=True)
         self.overlay._transcribing_signal.emit(True)
         try:
             t = Transcriber(
@@ -554,10 +557,12 @@ class WispyApp(QObject):
                 local_model=self.config.get("local_model", LOCAL_MODELS[0]),
             )
             text = t.transcribe(chunks)
+            print(f"[wispy] slice: got text: {text!r}", flush=True)
             if not text:
                 return
             keyword = self.config.get("stop_keyword", "")
             text, should_send = check_stop_keyword(text, keyword)
+            print(f"[wispy] slice: keyword={keyword!r}, should_send={should_send}", flush=True)
             if should_send:
                 self._pending_keyword = True
             self._injection_queue.put((text, should_send))
@@ -565,10 +570,12 @@ class WispyApp(QObject):
             if should_send:
                 # ponytail: stop directly — the pause that triggered this
                 # transcription IS the "pause after keyword"
+                print("[wispy] slice: keyword detected, stopping", flush=True)
                 self._stop_signal.emit()
         except InvalidAudioError:
-            pass
+            print("[wispy] slice: InvalidAudioError (too short?)", flush=True)
         except Exception as e:
+            print(f"[wispy] slice: error: {e}", flush=True)
             self._notify.emit("Wispy", str(e))
         finally:
             self.overlay._transcribing_signal.emit(False)
