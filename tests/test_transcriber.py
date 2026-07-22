@@ -2,13 +2,14 @@ import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from exceptions import (
-    TranscribeError, MissingKeyError, GroqError, InvalidAudioError,
+    TranscribeError, MissingKeyError, GroqError, InvalidAudioError, InjectError,
 )
 
 def test_hierarchy():
     assert issubclass(MissingKeyError, TranscribeError)
     assert issubclass(GroqError, TranscribeError)
     assert issubclass(InvalidAudioError, TranscribeError)
+    assert issubclass(InjectError, TranscribeError)
 
 def test_hierarchy_not_each_other():
     assert not issubclass(MissingKeyError, GroqError)
@@ -133,7 +134,49 @@ def test_transcribe_end_to_end():
     assert result == "hello world"
 
 
+def test_inject_calls_ydotool():
+    from unittest.mock import patch, MagicMock
+    from injector import Injector
+    inj = Injector()
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
+        inj.inject("hello world")
+    mock_run.assert_called_once()
+    args = mock_run.call_args
+    assert args[0][0] == ["ydotool", "type", "-d", "1", "-H", "1", "hello world"]
+
+
+def test_inject_raises_on_failure():
+    from unittest.mock import patch
+    import subprocess
+    from injector import Injector, InjectError
+    inj = Injector()
+    with patch("subprocess.run") as mock_run:
+        mock_run.side_effect = FileNotFoundError
+        try:
+            inj.inject("hi")
+            assert False, "should have raised"
+        except InjectError:
+            pass
+
+
+def test_copy_calls_clipboard():
+    from unittest.mock import patch, MagicMock
+    from injector import Injector
+    inj = Injector()
+    mock_clipboard = MagicMock()
+    mock_app = MagicMock()
+    mock_app.clipboard.return_value = mock_clipboard
+    with patch("PyQt6.QtWidgets.QApplication", mock_app):
+        inj.copy("test text")
+    mock_app.clipboard.assert_called_once()
+    mock_clipboard.setText.assert_called_once_with("test text")
+
+
 if __name__ == "__main__":
     test_hierarchy()
     test_hierarchy_not_each_other()
+    test_inject_calls_ydotool()
+    test_inject_raises_on_failure()
+    test_copy_calls_clipboard()
     print("All test_transcriber tests passed.")
