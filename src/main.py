@@ -509,11 +509,15 @@ class WispyApp(QObject):
             self.tray.showMessage("Wispy", "Recording too short (min 2s)",
                                   QSystemTrayIcon.MessageIcon.Information, 2000)
             return
-        # ponytail: flush remaining audio through slice pipeline
-        full = (buffer or []) + (remaining_slice or [])
-        if full:
+        # ponytail: only transcribe remaining audio after last pause
+        # slices already handled the rest
+        if remaining_slice:
             threading.Thread(target=self._transcribe_slice,
-                             args=(full,), daemon=True).start()
+                             args=(remaining_slice,), daemon=True).start()
+        elif buffer:
+            # no pauses happened — transcribe full buffer
+            threading.Thread(target=self._transcribe_slice,
+                             args=(buffer,), daemon=True).start()
 
     # ── transcription & injection ───────────────────────────────
 
@@ -522,6 +526,7 @@ class WispyApp(QObject):
         if self._pending_keyword:
             self._pending_keyword = False
             QTimer.singleShot(0, self._handle_keyword_stop)
+            return  # don't transcribe — we're stopping
         threading.Thread(target=self._transcribe_slice,
                          args=(slice_data,), daemon=True).start()
 
