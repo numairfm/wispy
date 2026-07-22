@@ -1,6 +1,6 @@
 import math
 from PyQt6.QtWidgets import QWidget, QApplication
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QPainter, QColor, QFont, QPen
 
 # Layout — equal 9px gaps, 6px side margins
@@ -24,14 +24,10 @@ _MAX_BAR_H = 6
 
 
 class OverlayWindow(QWidget):
-    _transcribing_signal = pyqtSignal(bool)
-
     def __init__(self, on_stop, level_getter):
         super().__init__()
         self.on_stop = on_stop
         self.get_level = level_getter
-        self._transcribing = False
-        self._transcribing_signal.connect(self._on_transcribing)
 
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
@@ -62,16 +58,7 @@ class OverlayWindow(QWidget):
     def reset(self):
         self.levels = [0.0] * _N_BARS
         self.elapsed_ticks = 0
-        self._transcribing = False
         self._ui.start()
-
-    def set_transcribing(self, active):
-        self._transcribing = active
-        self.update()
-
-    def _on_transcribing(self, active):
-        self._transcribing = active
-        self.update()
 
     def _tick(self):
         self.elapsed_ticks += 1
@@ -107,15 +94,6 @@ class OverlayWindow(QWidget):
             bh = max(1, int(lvl * _MAX_BAR_H))
             x = _WF_L + i * (_BAR_W + _BAR_GAP)
             p.drawRoundedRect(x, cy - bh, _BAR_W, bh * 2, 1, 1)
-
-        # transcribing indicator
-        if self._transcribing:
-            p.setPen(QColor(255, 255, 255, 100))
-            p.setFont(QFont("monospace", 7))
-            p.drawText(_TM_L, 0, _TM_W, _H,
-                       Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignCenter,
-                       "···")
-            return
 
         # timer
         secs = self.elapsed_ticks // 20

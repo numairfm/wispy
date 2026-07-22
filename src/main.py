@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import os, sys, json, signal, socket, threading, argparse, queue
+import os, sys, json, signal, socket, threading, argparse
 from pathlib import Path
 
 from PyQt6.QtWidgets import (
@@ -292,7 +292,7 @@ class SettingsDialog(QDialog):
         self._update_model_status()
 
     def _update_model_status(self):
-        import os, glob
+        import os
         name = self.local_model.currentText()
         size = LOCAL_MODEL_SIZES.get(name, "")
         pattern = os.path.expanduser(
@@ -361,7 +361,6 @@ class WispyApp(QObject):
     _notify = pyqtSignal(str, str)
     _set_clipboard = pyqtSignal(str)
     _rec_error = pyqtSignal(str)
-    _stop_signal = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -372,9 +371,6 @@ class WispyApp(QObject):
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         self.config = self._load_config()
         self._running = True
-        self._pending_keyword = False
-        self._injection_queue = queue.Queue()
-        self._injection_lock = threading.Lock()
         self._warmup_local_model()
 
         from recorder import Recorder
@@ -382,7 +378,6 @@ class WispyApp(QObject):
             device_name=self.config.get("input_device", ""),
             on_error=lambda msg: self._rec_error.emit(msg),
         )
-        self.recorder.on_pause = self._on_pause
 
         from overlay import OverlayWindow
         self.overlay = OverlayWindow(self._stop_recording,
@@ -391,7 +386,6 @@ class WispyApp(QObject):
         self._notify.connect(self._on_notify)
         self._set_clipboard.connect(self._on_set_clipboard)
         self._rec_error.connect(self._on_rec_error)
-        self._stop_signal.connect(self._handle_keyword_stop)
         self._setup_tray()
         self._start_ipc()
 
@@ -500,100 +494,49 @@ class WispyApp(QObject):
         self.overlay.show()
 
     def _stop_recording(self):
-        print("[wispy] _stop_recording called", flush=True)
-        self._pending_keyword = False
-        result = self.recorder.stop()
-        if result is None:
+        buffer = self.recorder.stop()
+        if buffer is None:
             return
-        buffer, remaining_slice = result
         self.overlay.hide()
         elapsed = self.recorder.elapsed()
         if elapsed < MIN_DURATION:
             self.tray.showMessage("Wispy", "Recording too short (min 2s)",
                                   QSystemTrayIcon.MessageIcon.Information, 2000)
             return
-        # ponytail: only transcribe remaining audio after last pause
-        # slices already handled the rest
-        if remaining_slice:
-            threading.Thread(target=self._transcribe_slice,
-                             args=(remaining_slice,), daemon=True).start()
-        elif buffer:
-            # no pauses happened — transcribe full buffer
-            threading.Thread(target=self._transcribe_slice,
-                             args=(buffer,), daemon=True).start()
+        threading.Thread(target=self._transcribe_and_inject,
+                         args=(buffer,), daemon=True).start()
 
     # ── transcription & injection ───────────────────────────────
 
-    def _on_pause(self, slice_data):
-        """Called from audio thread on pause detection. Must not block."""
-        print(f"[wispy] pause: {len(slice_data)} chunks, pending_kw={self._pending_keyword}", flush=True)
-        if self._pending_keyword:
-            self._pending_keyword = False
-            self._stop_signal.emit()
-            return  # don't transcribe — we're stopping
-        threading.Thread(target=self._transcribe_slice,
-                         args=(slice_data,), daemon=True).start()
-
-    def _handle_keyword_stop(self):
-        print("[wispy] _handle_keyword_stop called", flush=True)
-        if self.overlay.isVisible():
-            print("[wispy] overlay visible, stopping", flush=True)
-            self._stop_recording()
-        else:
-            print("[wispy] overlay NOT visible, skipping", flush=True)
-
-    def _transcribe_slice(self, chunks):
+    def _transcribe_and_inject(self, buffer):
         from transcriber import Transcriber
-        from exceptions import InvalidAudioError
-        from injector import check_stop_keyword
-        if not chunks:
-            print("[wispy] slice: empty chunks, skipping", flush=True)
+        from exceptions import TranscribeError, InvalidAudioError
+        from injector import Injector, check_stop_keyword
+        if not buffer:
             return
-        print(f"[wispy] slice: transcribing {len(chunks)} chunks...", flush=True)
-        self.overlay._transcribing_signal.emit(True)
+        t = Transcriber(
+            api_key=self.config.get("groq_api_key")
+                or os.environ.get("GROQ_API_KEY", ""),
+            model=self.config.get("groq_model", MODELS[0]),
+            language=self.config.get("language") or None,
+            clean=self.config.get("clean_text", False),
+            engine_mode=self.config.get("engine_mode", "online"),
+            local_model=self.config.get("local_model", LOCAL_MODELS[0]),
+        )
+        inj = Injector()
         try:
-            t = Transcriber(
-                api_key=self.config.get("groq_api_key")
-                    or os.environ.get("GROQ_API_KEY", ""),
-                model=self.config.get("groq_model", MODELS[0]),
-                language=self.config.get("language") or None,
-                clean=self.config.get("clean_text", False),
-                engine_mode=self.config.get("engine_mode", "online"),
-                local_model=self.config.get("local_model", LOCAL_MODELS[0]),
-            )
-            text = t.transcribe(chunks)
-            print(f"[wispy] slice: got text: {text!r}", flush=True)
+            text = t.transcribe(buffer)
             if not text:
                 return
             keyword = self.config.get("stop_keyword", "")
             text, should_send = check_stop_keyword(text, keyword)
-            print(f"[wispy] slice: keyword={keyword!r}, should_send={should_send}", flush=True)
-            if should_send:
-                self._pending_keyword = True
-            self._injection_queue.put((text, should_send))
-            self._process_injection_queue()
-            if should_send:
-                # ponytail: stop directly — the pause that triggered this
-                # transcription IS the "pause after keyword"
-                print("[wispy] slice: keyword detected, stopping", flush=True)
-                self._stop_signal.emit()
+            if self.config.get("copy_to_clipboard"):
+                self._set_clipboard.emit(text)
+            inj.inject(text, press_enter=should_send)
         except InvalidAudioError:
-            print("[wispy] slice: InvalidAudioError (too short?)", flush=True)
+            pass
         except Exception as e:
-            print(f"[wispy] slice: error: {e}", flush=True)
             self._notify.emit("Wispy", str(e))
-        finally:
-            self.overlay._transcribing_signal.emit(False)
-
-    def _process_injection_queue(self):
-        from injector import Injector
-        with self._injection_lock:
-            inj = Injector()
-            while not self._injection_queue.empty():
-                text, should_send = self._injection_queue.get_nowait()
-                if self.config.get("copy_to_clipboard"):
-                    self._set_clipboard.emit(text)
-                inj.inject(text, press_enter=should_send)
 
     def quit(self):
         self._running = False
