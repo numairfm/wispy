@@ -1,7 +1,7 @@
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from recorder import resolve_device
+from recorder import resolve_device, Recorder
 
 def test_resolve_device_found():
     devices = [
@@ -29,3 +29,15 @@ def test_resolve_device_skips_output_only():
 def test_resolve_device_empty_name():
     devices = [{'name': 'mic', 'max_input_channels': 1}]
     assert resolve_device('', devices=devices) is None
+
+def test_recorder_initial_level():
+    r = Recorder()
+    assert r.level() == 0.0
+
+def test_recorder_stores_device():
+    r = Recorder(device_name="mic1")
+    assert r.device_name == "mic1"
+
+def test_recorder_elapsed_zero_before_start():
+    r = Recorder()
+    assert r.elapsed() == 0.0
