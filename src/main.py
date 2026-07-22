@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import os, sys, json, signal, socket, threading, argparse
+import os, sys, json, signal, socket, threading, argparse, queue
 from pathlib import Path
 
 from PyQt6.QtWidgets import (
@@ -371,6 +371,9 @@ class WispyApp(QObject):
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         self.config = self._load_config()
         self._running = True
+        self._pending_keyword = False
+        self._injection_queue = queue.Queue()
+        self._injection_lock = threading.Lock()
         self._warmup_local_model()
 
         from recorder import Recorder
@@ -378,6 +381,7 @@ class WispyApp(QObject):
             device_name=self.config.get("input_device", ""),
             on_error=lambda msg: self._rec_error.emit(msg),
         )
+        self.recorder.on_pause = self._on_pause
 
         from overlay import OverlayWindow
         self.overlay = OverlayWindow(self._stop_recording,
@@ -494,25 +498,35 @@ class WispyApp(QObject):
         self.overlay.show()
 
     def _stop_recording(self):
-        buffer, remaining_slice = self.recorder.stop()  # used in Task 2
-        if buffer is None:
+        self._pending_keyword = False
+        result = self.recorder.stop()
+        if result is None:
             return
+        buffer, remaining_slice = result
         self.overlay.hide()
         elapsed = self.recorder.elapsed()
         if elapsed < MIN_DURATION:
             self.tray.showMessage("Wispy", "Recording too short (min 2s)",
                                   QSystemTrayIcon.MessageIcon.Information, 2000)
             return
-        threading.Thread(target=self._transcribe_and_inject,
-                         args=(buffer,), daemon=True).start()
+        # ponytail: flush remaining audio through slice pipeline
+        full = (buffer or []) + (remaining_slice or [])
+        if full:
+            threading.Thread(target=self._transcribe_slice,
+                             args=(full,), daemon=True).start()
 
     # ── transcription & injection ───────────────────────────────
 
-    def _transcribe_and_inject(self, buffer):
+    def _on_pause(self, slice_data):
+        """Called from audio thread on pause detection. Must not block."""
+        threading.Thread(target=self._transcribe_slice,
+                         args=(slice_data,), daemon=True).start()
+
+    def _transcribe_slice(self, chunks):
         from transcriber import Transcriber
-        from exceptions import TranscribeError, InvalidAudioError
-        from injector import Injector, check_stop_keyword
-        if not buffer:
+        from exceptions import InvalidAudioError
+        from injector import check_stop_keyword
+        if not chunks:
             return
         t = Transcriber(
             api_key=self.config.get("groq_api_key")
@@ -523,20 +537,30 @@ class WispyApp(QObject):
             engine_mode=self.config.get("engine_mode", "online"),
             local_model=self.config.get("local_model", LOCAL_MODELS[0]),
         )
-        inj = Injector()
         try:
-            text = t.transcribe(buffer)
+            text = t.transcribe(chunks)
             if not text:
                 return
             keyword = self.config.get("stop_keyword", "")
             text, should_send = check_stop_keyword(text, keyword)
-            if self.config.get("copy_to_clipboard"):
-                self._set_clipboard.emit(text)
-            inj.inject(text, press_enter=should_send)
+            if should_send:
+                self._pending_keyword = True
+            self._injection_queue.put((text, should_send))
+            self._process_injection_queue()
         except InvalidAudioError:
             pass
         except Exception as e:
             self._notify.emit("Wispy", str(e))
+
+    def _process_injection_queue(self):
+        from injector import Injector
+        with self._injection_lock:
+            inj = Injector()
+            while not self._injection_queue.empty():
+                text, should_send = self._injection_queue.get_nowait()
+                if self.config.get("copy_to_clipboard"):
+                    self._set_clipboard.emit(text)
+                inj.inject(text, press_enter=should_send)
 
     def quit(self):
         self._running = False
