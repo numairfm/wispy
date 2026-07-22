@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
     QLineEdit, QComboBox, QPushButton, QCheckBox,
     QLabel, QFileDialog, QProgressBar,
 )
-from PyQt6.QtCore import Qt, QObject, pyqtSignal, QSocketNotifier, QThread
+from PyQt6.QtCore import Qt, QObject, pyqtSignal, QSocketNotifier, QThread, QTimer
 from PyQt6.QtGui import QIcon, QPixmap, QColor, QPainter, QPen
 
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "wispy"
@@ -519,8 +519,15 @@ class WispyApp(QObject):
 
     def _on_pause(self, slice_data):
         """Called from audio thread on pause detection. Must not block."""
+        if self._pending_keyword:
+            self._pending_keyword = False
+            QTimer.singleShot(0, self._handle_keyword_stop)
         threading.Thread(target=self._transcribe_slice,
                          args=(slice_data,), daemon=True).start()
+
+    def _handle_keyword_stop(self):
+        if self.overlay.isVisible():
+            self._stop_recording()
 
     def _transcribe_slice(self, chunks):
         from transcriber import Transcriber
