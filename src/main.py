@@ -500,6 +500,7 @@ class WispyApp(QObject):
         self.overlay.show()
 
     def _stop_recording(self):
+        print("[wispy] _stop_recording called", flush=True)
         self._pending_keyword = False
         result = self.recorder.stop()
         if result is None:
@@ -534,8 +535,12 @@ class WispyApp(QObject):
                          args=(slice_data,), daemon=True).start()
 
     def _handle_keyword_stop(self):
+        print("[wispy] _handle_keyword_stop called", flush=True)
         if self.overlay.isVisible():
+            print("[wispy] overlay visible, stopping", flush=True)
             self._stop_recording()
+        else:
+            print("[wispy] overlay NOT visible, skipping", flush=True)
 
     def _transcribe_slice(self, chunks):
         from transcriber import Transcriber
