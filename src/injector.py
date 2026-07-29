@@ -8,13 +8,8 @@ class Injector:
         try:
             if mode == "paste":
                 subprocess.run(
-                    ["ydotool", "key", "29:1", "47:1", "47:0", "29:0"],
+                    ["ydotool", "key", "29:1", "42:1", "47:1", "47:0", "42:0", "29:0"],
                     check=True, capture_output=True, timeout=5,
-                )
-            elif mode == "type":
-                subprocess.run(
-                    ["ydotool", "type", "-d", "1", "-H", "1", text],
-                    check=True, capture_output=True, timeout=60,
                 )
             elif mode == "copy":
                 pass
