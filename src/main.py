@@ -668,6 +668,11 @@ class WispyApp(QObject):
 
     def _on_set_clipboard(self, text):
         QApplication.clipboard().setText(text)
+        try:
+            import subprocess
+            subprocess.Popen(["wl-copy", text], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
 
     def _on_rec_error(self, msg):
         self.overlay.hide()
@@ -785,6 +790,7 @@ class WispyApp(QObject):
 
     def _transcribe_and_inject(self, buffer):
         try:
+            import time
             from transcriber import Transcriber
             from exceptions import InvalidAudioError
             from injector import Injector
@@ -807,9 +813,15 @@ class WispyApp(QObject):
                 if not text:
                     return
                 output_mode = self.config.get("output_mode", "paste")
-                if output_mode in ("paste", "copy") or self.config.get("copy_to_clipboard"):
-                    self._set_clipboard.emit(text)
-                inj.inject(text, mode=output_mode, send_enter=self.config.get("send_enter", False))
+                self._set_clipboard.emit(text)
+
+                # Emit completion signal FIRST so overlay hides immediately and active window recovers focus
+                self._transcribe_finished.emit()
+
+                if output_mode == "paste":
+                    # Sleep 150ms to allow KDE Plasma / Wayland compositor to restore input focus to the target app
+                    time.sleep(0.15)
+                    inj.inject(text, mode=output_mode, send_enter=self.config.get("send_enter", False))
             except InvalidAudioError:
                 pass
             except Exception as e:

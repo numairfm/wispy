@@ -94,10 +94,10 @@ def test_injector_modes():
     inj = Injector()
 
     with patch("subprocess.run") as mock_run:
-        # paste mode
+        # paste mode (Ctrl+V with -d 12 key delay)
         inj.inject("hello", mode="paste", send_enter=False)
         mock_run.assert_called_once_with(
-            ["ydotool", "key", "29:1", "42:1", "47:1", "47:0", "42:0", "29:0"],
+            ["ydotool", "key", "-d", "12", "29:1", "47:1", "47:0", "29:0"],
             check=True, capture_output=True, timeout=5,
         )
 
@@ -111,11 +111,11 @@ def test_injector_modes():
         inj.inject("hello", mode="paste", send_enter=True)
         assert mock_run.call_count == 2
         assert mock_run.call_args_list[0] == (
-            (["ydotool", "key", "29:1", "42:1", "47:1", "47:0", "42:0", "29:0"],),
+            (["ydotool", "key", "-d", "12", "29:1", "47:1", "47:0", "29:0"],),
             {"check": True, "capture_output": True, "timeout": 5},
         )
         assert mock_run.call_args_list[1] == (
-            (["ydotool", "key", "28:1", "28:0"],),
+            (["ydotool", "key", "-d", "12", "28:1", "28:0"],),
             {"check": True, "capture_output": True, "timeout": 5},
         )
 
