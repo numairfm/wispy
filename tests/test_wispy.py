@@ -151,7 +151,7 @@ def test_config_output_mode():
 def test_styles_module():
     import styles
     assert hasattr(styles, "DARK_THEME_QSS")
-    assert "background-color: #121318" in styles.DARK_THEME_QSS or "#121318" in styles.DARK_THEME_QSS
+    assert "background-color: #18181b" in styles.DARK_THEME_QSS
 
 def test_app_qss_applied():
     from PyQt6.QtWidgets import QApplication
