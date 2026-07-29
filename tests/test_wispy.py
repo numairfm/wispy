@@ -148,6 +148,11 @@ def test_config_output_mode():
                 wispy_app._sock.close()
                 SOCKET_PATH.unlink(missing_ok=True)
 
+def test_styles_module():
+    import styles
+    assert hasattr(styles, "DARK_THEME_QSS")
+    assert "background-color: #121318" in styles.DARK_THEME_QSS or "#121318" in styles.DARK_THEME_QSS
+
 if __name__ == "__main__":
     test_server()
     test_toggle()
@@ -162,6 +167,8 @@ if __name__ == "__main__":
     test_overlay_states()
     test_toggle_ignored_during_transcribing()
     test_config_output_mode()
+    test_styles_module()
     print("All tests passed.")
     sys.exit(0)
+
 
