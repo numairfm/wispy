@@ -159,7 +159,7 @@ def test_app_qss_applied():
     from main import WispyApp, SOCKET_PATH
     wispy_app = WispyApp()
     try:
-        assert len(wispy_app.app.styleSheet()) > 0
+        assert "#18181b" in wispy_app.app.styleSheet()
     finally:
         wispy_app.recorder.stop()
         wispy_app._notifier.setEnabled(False)

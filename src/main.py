@@ -19,7 +19,7 @@ from styles import DARK_THEME_QSS
 def _section_label(text):
     lbl = QLabel(text.upper())
     lbl.setStyleSheet(
-        "color: #818cf8; font-size: 11px; font-weight: 700; "
+        "color: #ffffff; font-size: 11px; font-weight: 700; "
         "letter-spacing: 1px; margin-top: 14px; margin-bottom: 2px;"
     )
     return lbl
@@ -508,8 +508,8 @@ class AppearanceDialog(QDialog):
         self.preview.set_appearance(self.ap)
         preview_card = QWidget()
         preview_card.setStyleSheet(
-            "background-color: rgba(255, 255, 255, 0.02); "
-            "border: 1px solid rgba(255, 255, 255, 0.08); "
+            "background-color: #27272a; "
+            "border: 1px solid #3f3f46; "
             "border-radius: 14px; padding: 16px;"
         )
         card_layout = QVBoxLayout(preview_card)
