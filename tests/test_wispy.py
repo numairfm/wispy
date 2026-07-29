@@ -86,6 +86,45 @@ def test_toggle_ignored_during_transcribing():
         if hasattr(wispy_app, '_sock'):
             wispy_app._sock.close()
 
+def test_injector_modes():
+    from unittest.mock import patch
+    from injector import Injector
+    inj = Injector()
+
+    with patch("subprocess.run") as mock_run:
+        # paste mode
+        inj.inject("hello", mode="paste", send_enter=False)
+        mock_run.assert_called_once_with(
+            ["ydotool", "key", "29:1", "47:1", "47:0", "29:0"],
+            check=True, capture_output=True, timeout=5,
+        )
+
+    with patch("subprocess.run") as mock_run:
+        # copy mode (no subprocess call)
+        inj.inject("hello", mode="copy", send_enter=False)
+        mock_run.assert_not_called()
+
+    with patch("subprocess.run") as mock_run:
+        # type mode
+        inj.inject("hello", mode="type", send_enter=False)
+        mock_run.assert_called_once_with(
+            ["ydotool", "type", "-d", "1", "-H", "1", "hello"],
+            check=True, capture_output=True, timeout=60,
+        )
+
+    with patch("subprocess.run") as mock_run:
+        # send_enter flag
+        inj.inject("hello", mode="paste", send_enter=True)
+        assert mock_run.call_count == 2
+        assert mock_run.call_args_list[0] == (
+            (["ydotool", "key", "29:1", "47:1", "47:0", "29:0"],),
+            {"check": True, "capture_output": True, "timeout": 5},
+        )
+        assert mock_run.call_args_list[1] == (
+            (["ydotool", "key", "28:1", "28:0"],),
+            {"check": True, "capture_output": True, "timeout": 5},
+        )
+
 if __name__ == "__main__":
     test_server()
     test_toggle()
@@ -96,7 +135,9 @@ if __name__ == "__main__":
     test_clean_prompt_default()
     test_transcriber_custom_prompts()
     test_transcriber_defaults_used_when_empty()
+    test_injector_modes()
     test_overlay_states()
     test_toggle_ignored_during_transcribing()
     print("All tests passed.")
     sys.exit(0)
+
