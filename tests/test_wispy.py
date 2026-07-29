@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import sys, os
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from main import parse_args, MIN_DURATION
@@ -65,6 +66,26 @@ def test_overlay_states():
     ov.reset()
     assert ov.state == "recording"
 
+def test_toggle_ignored_during_transcribing():
+    from PyQt6.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication([])
+    from main import WispyApp
+    wispy_app = WispyApp()
+    try:
+        wispy_app.recorder._recording = True
+        wispy_app.recorder._audio_buffer = []
+        wispy_app.overlay.set_state("transcribing")
+        wispy_app.overlay.show()
+        # toggle_overlay should be ignored when state is transcribing
+        wispy_app.toggle_overlay()
+        assert wispy_app.overlay.isVisible()
+        assert wispy_app.overlay.state == "transcribing"
+        wispy_app.overlay.hide()
+    finally:
+        wispy_app.quit()
+        if hasattr(wispy_app, '_sock'):
+            wispy_app._sock.close()
+
 if __name__ == "__main__":
     test_server()
     test_toggle()
@@ -76,4 +97,6 @@ if __name__ == "__main__":
     test_transcriber_custom_prompts()
     test_transcriber_defaults_used_when_empty()
     test_overlay_states()
+    test_toggle_ignored_during_transcribing()
     print("All tests passed.")
+    sys.exit(0)

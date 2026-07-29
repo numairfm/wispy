@@ -5,12 +5,23 @@ from pathlib import Path
 
 from PyQt6.QtWidgets import (
     QApplication, QSystemTrayIcon, QMenu, QDialog,
-    QVBoxLayout, QHBoxLayout, QFormLayout,
-    QLineEdit, QComboBox, QPushButton, QCheckBox,
-    QLabel, QFileDialog, QProgressBar,
+    QVBoxLayout, QHBoxLayout, QFormLayout, QScrollArea,
+    QLineEdit, QComboBox, QPushButton, QCheckBox, QSlider,
+    QLabel, QProgressBar, QWidget, QColorDialog,
 )
 from PyQt6.QtCore import Qt, QObject, pyqtSignal, QSocketNotifier, QThread
-from PyQt6.QtGui import QIcon, QPixmap, QColor, QPainter, QPen
+from PyQt6.QtGui import QIcon, QPixmap, QColor, QPainter, QPen, QFont
+
+from overlay import OVERLAY_DEFAULTS, _compute_layout
+
+
+def _section_label(text):
+    lbl = QLabel(text)
+    f = lbl.font()
+    f.setBold(True)
+    lbl.setFont(f)
+    return lbl
+
 
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "wispy"
 CONFIG_FILE = CONFIG_DIR / "config.json"
@@ -52,8 +63,6 @@ LOCAL_MODEL_SIZES = {
 }
 
 MIN_DURATION = 2.0
-
-LLM_MODEL = "llama-3.1-8b-instant"
 
 
 # ── icon helpers ────────────────────────────────────────────────
@@ -167,7 +176,7 @@ class SettingsDialog(QDialog):
         form.setVerticalSpacing(10)
 
         # ── Transcription ──
-        form.addRow(self._section("Transcription"))
+        form.addRow(_section_label("Transcription"))
 
         self.engine_mode = QComboBox()
         self.engine_mode.addItems(["Online Only (Groq)", "Offline Only (Local)", "Hybrid (Cloud + Fallback)"])
@@ -192,8 +201,12 @@ class SettingsDialog(QDialog):
         self.language.setPlaceholderText("Optional, e.g. en")
         form.addRow("Language", self.language)
 
+        self.whisper_prompt = QLineEdit(config.get("whisper_prompt", ""))
+        self.whisper_prompt.setPlaceholderText("Optional hint for Whisper")
+        form.addRow("Whisper Prompt", self.whisper_prompt)
+
         # ── Local Model ──
-        form.addRow(self._section("Local Model"))
+        form.addRow(_section_label("Local Model"))
 
         self.local_model = QComboBox()
         self.local_model.addItems(LOCAL_MODELS)
@@ -219,7 +232,7 @@ class SettingsDialog(QDialog):
         self._update_model_status()
 
         # ── Audio ──
-        form.addRow(self._section("Audio"))
+        form.addRow(_section_label("Audio"))
 
         import sounddevice as sd
         self.device = QComboBox()
@@ -235,28 +248,39 @@ class SettingsDialog(QDialog):
         form.addRow("Input Device", self.device)
 
         # ── Behavior ──
-        form.addRow(self._section("Behavior"))
+        form.addRow(_section_label("Behavior"))
 
         self.copy_clipboard = QCheckBox("Copy transcribed text to clipboard")
         self.copy_clipboard.setChecked(config.get("copy_to_clipboard", False))
         form.addRow(self.copy_clipboard)
 
-        # ── Experimental ──
-        form.addRow(self._section("Experimental"))
+        self.send_enter = QCheckBox("Press Enter after injection")
+        self.send_enter.setChecked(config.get("send_enter", False))
+        form.addRow(self.send_enter)
 
-        self.clean_text = QCheckBox("Clean and format text with AI")
+        # ── Notifications ──
+        form.addRow(_section_label("Notifications"))
+
+        self.notify_errors = QCheckBox("Show error notifications")
+        self.notify_errors.setChecked(config.get("notify_errors", True))
+        form.addRow(self.notify_errors)
+
+        self.notify_short = QCheckBox("Show 'recording too short' warning")
+        self.notify_short.setChecked(config.get("notify_short_recording", True))
+        form.addRow(self.notify_short)
+
+        # ── Experimental ──
+        form.addRow(_section_label("Experimental"))
+
+        self.clean_text = QCheckBox("AI Clean (punctuation, formatting)")
         self.clean_text.setChecked(config.get("clean_text", False))
+        self.clean_text.toggled.connect(self._on_clean_toggled)
         form.addRow(self.clean_text)
 
-        self.stop_keyword_cb = QCheckBox("Enable stop keyword (press Enter when keyword detected)")
-        self.stop_keyword_cb.setChecked(bool(config.get("stop_keyword", "")))
-        self.stop_keyword_cb.toggled.connect(self._on_stop_keyword_toggled)
-        form.addRow(self.stop_keyword_cb)
-
-        self.stop_keyword = QLineEdit(config.get("stop_keyword", ""))
-        self.stop_keyword.setPlaceholderText("e.g. send it, enter, done")
-        form.addRow("Stop keyword", self.stop_keyword)
-        self._on_stop_keyword_toggled(self.stop_keyword_cb.isChecked())
+        self.clean_prompt = QLineEdit(config.get("clean_prompt", ""))
+        self.clean_prompt.setPlaceholderText("System prompt for AI cleanup")
+        self.clean_prompt.setEnabled(config.get("clean_text", False))
+        form.addRow("Clean Prompt", self.clean_prompt)
 
         # ── Buttons ──
         btn_row = QHBoxLayout()
@@ -272,21 +296,15 @@ class SettingsDialog(QDialog):
 
         self._on_engine_changed(self.engine_mode.currentIndex())
 
-    def _section(self, text):
-        lbl = QLabel(text)
-        f = lbl.font()
-        f.setBold(True)
-        lbl.setFont(f)
-        return lbl
-
     def _on_engine_changed(self, idx):
         online = idx != 1  # enabled for online(0) and hybrid(2), disabled for offline(1)
         self.api_key.setEnabled(online)
         self.model.setEnabled(online)
         self.language.setEnabled(online)
+        self.whisper_prompt.setEnabled(online)
 
-    def _on_stop_keyword_toggled(self, checked):
-        self.stop_keyword.setEnabled(checked)
+    def _on_clean_toggled(self, checked):
+        self.clean_prompt.setEnabled(checked)
 
     def _on_local_model_changed(self, name):
         self._update_model_status()
@@ -347,8 +365,253 @@ class SettingsDialog(QDialog):
         self.config["local_model"] = self.local_model.currentText()
         self.config["input_device"] = self.device.currentData() or ""
         self.config["copy_to_clipboard"] = self.copy_clipboard.isChecked()
+        self.config["send_enter"] = self.send_enter.isChecked()
         self.config["clean_text"] = self.clean_text.isChecked()
-        self.config["stop_keyword"] = self.stop_keyword.text().strip() if self.stop_keyword_cb.isChecked() else ""
+        self.config["clean_prompt"] = self.clean_prompt.text().strip()
+        self.config["whisper_prompt"] = self.whisper_prompt.text().strip()
+        self.config["notify_errors"] = self.notify_errors.isChecked()
+        self.config["notify_short_recording"] = self.notify_short.isChecked()
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        with open(CONFIG_FILE, "w") as f:
+            json.dump(self.config, f, indent=2)
+        self.accept()
+
+
+# ── appearance dialog ───────────────────────────────────────────
+
+class OverlayPreview(QWidget):
+    """Renders the overlay at 2x scale for live preview."""
+    SCALE = 3
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._ap = dict(OVERLAY_DEFAULTS)
+        self._lay = _compute_layout(self._ap)
+        w, h = self._ap["width"], self._ap["height"]
+        self.setFixedSize(w * self.SCALE, h * self.SCALE)
+        self._elapsed = 0
+        self._levels = [0.0] * self._ap["bar_count"]
+
+    def set_appearance(self, ap):
+        self._ap = dict(OVERLAY_DEFAULTS, **ap)
+        self._lay = _compute_layout(self._ap)
+        w, h = self._ap["width"], self._ap["height"]
+        self.setFixedSize(w * self.SCALE, h * self.SCALE)
+        n = self._ap["bar_count"]
+        self._levels = [0.0] * n
+        self._elapsed = 0
+        self.update()
+
+    def paintEvent(self, event):
+        import math
+        s = self.SCALE
+        ap, lay = self._ap, self._lay
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.scale(s, s)
+        cy = ap["height"] // 2
+
+        # pill bg
+        bc = ap["border_color"]
+        p.setPen(QPen(QColor(bc[0], bc[1], bc[2], ap["border_alpha"]), 1))
+        bgc = ap["bg_color"]
+        p.setBrush(QColor(bgc[0], bgc[1], bgc[2], ap["bg_alpha"]))
+        p.drawRoundedRect(1, 1, lay["w"] - 2, ap["height"] - 2,
+                          ap["corner_radius"], ap["corner_radius"])
+
+        # recording dot (static, no pulse in preview)
+        dc = ap["dot_color"]
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(dc[0], dc[1], dc[2], 200))
+        dot_r = ap["corner_radius"] // 4
+        p.drawEllipse(lay["dot_x"] - dot_r, cy - dot_r, dot_r * 2, dot_r * 2)
+
+        # waveform (static bars at 60% height for preview)
+        n_bars = ap["bar_count"]
+        bw, bh_max = ap["bar_width"], ap["bar_max_height"]
+        bgap, fade_min = ap["bar_gap"], ap["bar_fade_min"]
+        brc = ap["bar_color"]
+        for i in range(n_bars):
+            dist = abs(i - n_bars // 2) / max(1, n_bars // 2)
+            fade = fade_min + (1.0 - fade_min) * (1.0 - dist)
+            al = int(max(20, fade * 200))
+            p.setBrush(QColor(brc[0], brc[1], brc[2], al))
+            bh = max(1, int(0.6 * bh_max))
+            x = lay["wf_l"] + i * (bw + bgap)
+            p.drawRoundedRect(x, cy - bh, bw, bh * 2, 1, 1)
+
+        # timer
+        p.setPen(QColor(255, 255, 255, ap["timer_alpha"]))
+        p.setFont(QFont("monospace", ap["timer_font_size"]))
+        p.drawText(lay["tm_l"], 0, lay["tm_w"], ap["height"],
+                   Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignCenter,
+                   "00:05")
+
+        # stop button
+        bt_r = ap["button_radius"]
+        bt_cr = ap["button_corner_radius"]
+        p.setPen(QPen(QColor(255, 255, 255, ap["button_outline_alpha"]), 1.5))
+        p.setBrush(QColor(255, 255, 255, ap["button_fill_alpha"]))
+        p.drawRoundedRect(lay["bt_x"] - bt_r, cy - bt_r,
+                          bt_r * 2, bt_r * 2, bt_cr, bt_cr)
+        pad = 2
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(255, 255, 255, ap["button_outline_alpha"]))
+        p.drawRoundedRect(lay["bt_x"] - bt_r + pad, cy - bt_r + pad,
+                          (bt_r - pad) * 2, (bt_r - pad) * 2, 1, 1)
+
+
+def _color_btn(initial, on_change):
+    """Create a button that shows a color and opens QColorDialog on click."""
+    r, g, b = initial
+    btn = QPushButton()
+    btn.setFixedSize(60, 24)
+    btn.setStyleSheet(f"background-color: rgb({r},{g},{b}); border: 1px solid #555;")
+    def pick():
+        c = QColorDialog.getColor(QColor(r, g, b), btn, "Choose Color",
+                                  QColorDialog.ColorDialogOption.ShowAlphaChannel)
+        if c.isValid():
+            on_change(c.red(), c.green(), c.blue())
+            btn.setStyleSheet(
+                f"background-color: rgb({c.red()},{c.green()},{c.blue()});"
+                " border: 1px solid #555;")
+    btn.clicked.connect(pick)
+    return btn
+
+
+class AppearanceDialog(QDialog):
+    def __init__(self, config, parent=None):
+        super().__init__(parent)
+        self.config = config
+        self.ap = dict(OVERLAY_DEFAULTS, **(config.get("overlay") or {}))
+        self.setWindowTitle("Overlay Appearance")
+        self.setMinimumWidth(500)
+        self.setWindowFlags(self.windowFlags()
+                            & ~Qt.WindowType.WindowContextHelpButtonHint)
+        self._color_btns = {}
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(16, 12, 16, 12)
+
+        # preview
+        self.preview = OverlayPreview()
+        self.preview.set_appearance(self.ap)
+        root.addWidget(self.preview, alignment=Qt.AlignmentFlag.AlignHCenter)
+
+        # scrollable controls
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setMaximumHeight(340)
+        form = QWidget()
+        fl = QFormLayout(form)
+        fl.setContentsMargins(8, 8, 8, 8)
+        fl.setVerticalSpacing(6)
+
+        # ── Pill ──
+        fl.addRow(_section_label("Pill"))
+        self._add_slider(fl, "Width", "width", 100, 400)
+        self._add_slider(fl, "Height", "height", 24, 80)
+        self._add_slider(fl, "Corner Radius", "corner_radius", 4, 40)
+        self._add_color(fl, "Background", "bg_color")
+        self._add_slider(fl, "Bg Alpha", "bg_alpha", 0, 255)
+        self._add_color(fl, "Border", "border_color")
+        self._add_slider(fl, "Border Alpha", "border_alpha", 0, 255)
+
+        # ── Dot ──
+        fl.addRow(_section_label("Recording Dot"))
+        self._add_color(fl, "Color", "dot_color")
+
+        # ── Waveform ──
+        fl.addRow(_section_label("Waveform"))
+        self._add_color(fl, "Bar Color", "bar_color")
+        self._add_slider(fl, "Bar Width", "bar_width", 1, 8)
+        self._add_slider(fl, "Bar Gap", "bar_gap", 0, 6)
+        self._add_slider(fl, "Bar Count", "bar_count", 4, 30)
+        self._add_slider(fl, "Max Bar Height", "bar_max_height", 2, 16)
+        self._add_slider(fl, "Fade Minimum", "bar_fade_min", 0, 100, scale=0.01)
+
+        # ── Timer ──
+        fl.addRow(_section_label("Timer"))
+        self._add_slider(fl, "Alpha", "timer_alpha", 0, 255)
+        self._add_slider(fl, "Font Size", "timer_font_size", 6, 14)
+
+        # ── Stop Button ──
+        fl.addRow(_section_label("Stop Button"))
+        self._add_slider(fl, "Outline Alpha", "button_outline_alpha", 0, 255)
+        self._add_slider(fl, "Fill Alpha", "button_fill_alpha", 0, 255)
+        self._add_slider(fl, "Radius", "button_radius", 3, 12)
+        self._add_slider(fl, "Corner Radius", "button_corner_radius", 0, 6)
+
+        # ── Layout ──
+        fl.addRow(_section_label("Layout"))
+        self._add_slider(fl, "Section Gap", "section_gap", 4, 20)
+
+        scroll.setWidget(form)
+        root.addWidget(scroll)
+
+        # buttons
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        reset = QPushButton("Reset Defaults")
+        reset.clicked.connect(self._reset)
+        cancel = QPushButton("Cancel")
+        cancel.clicked.connect(self.reject)
+        save = QPushButton("Save")
+        save.setDefault(True)
+        save.clicked.connect(self._save)
+        btn_row.addWidget(reset)
+        btn_row.addWidget(cancel)
+        btn_row.addWidget(save)
+        root.addLayout(btn_row)
+
+    def _add_slider(self, form, label, key, lo, hi, scale=1):
+        val = self.ap.get(key, OVERLAY_DEFAULTS[key])
+        sl = QSlider(Qt.Orientation.Horizontal)
+        sl.setRange(lo, hi)
+        sl.setValue(int(val / scale) if scale != 1 else val)
+        sl.setTickPosition(QSlider.TickPosition.NoTicks)
+        sl.setProperty("ap_key", key)
+        sl.setProperty("scale", scale)
+        lbl_val = QLabel(str(val))
+        lbl_val.setFixedWidth(40)
+        def update(v, k=key, s=scale, l=lbl_val):
+            real = v * s if s != 1 else v
+            self.ap[k] = real if s == 1 else round(real, 2)
+            l.setText(str(self.ap[k]))
+            self.preview.set_appearance(self.ap)
+        sl.valueChanged.connect(update)
+        row = QHBoxLayout()
+        row.addWidget(sl)
+        row.addWidget(lbl_val)
+        w = QWidget()
+        w.setLayout(row)
+        form.addRow(label, w)
+
+    def _add_color(self, form, label, key):
+        initial = self.ap.get(key, OVERLAY_DEFAULTS[key])
+        def change(r, g, b, k=key):
+            self.ap[k] = [r, g, b]
+            self.preview.set_appearance(self.ap)
+        btn = _color_btn(initial, change)
+        self._color_btns[key] = btn
+        form.addRow(label, btn)
+
+    def _reset(self):
+        self.ap = dict(OVERLAY_DEFAULTS)
+        self.preview.set_appearance(self.ap)
+        for sl in self.findChildren(QSlider):
+            key = sl.property("ap_key")
+            scale = sl.property("scale")
+            if key:
+                val = self.ap.get(key, OVERLAY_DEFAULTS.get(key, 0))
+                sl.setValue(int(val / scale) if scale else val)
+        for key, btn in self._color_btns.items():
+            r, g, b = self.ap.get(key, OVERLAY_DEFAULTS[key])
+            btn.setStyleSheet(
+                f"background-color: rgb({r},{g},{b}); border: 1px solid #555;")
+
+    def _save(self):
+        self.config["overlay"] = self.ap
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         with open(CONFIG_FILE, "w") as f:
             json.dump(self.config, f, indent=2)
@@ -361,6 +624,7 @@ class WispyApp(QObject):
     _notify = pyqtSignal(str, str)
     _set_clipboard = pyqtSignal(str)
     _rec_error = pyqtSignal(str)
+    _transcribe_finished = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -370,8 +634,6 @@ class WispyApp(QObject):
 
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         self.config = self._load_config()
-        self._running = True
-        self._warmup_local_model()
 
         from recorder import Recorder
         self.recorder = Recorder(
@@ -381,25 +643,33 @@ class WispyApp(QObject):
 
         from overlay import OverlayWindow
         self.overlay = OverlayWindow(self._stop_recording,
-                                     lambda: self.recorder.level())
+                                     lambda: self.recorder.level(),
+                                     self.config.get("overlay"))
 
         self._notify.connect(self._on_notify)
         self._set_clipboard.connect(self._on_set_clipboard)
         self._rec_error.connect(self._on_rec_error)
+        self._transcribe_finished.connect(self._on_transcribe_finished)
         self._setup_tray()
         self._start_ipc()
 
     def _on_notify(self, title, msg):
-        self.tray.showMessage(title, msg,
-                              QSystemTrayIcon.MessageIcon.Critical, 5000)
+        if self.config.get("notify_errors", True):
+            self.tray.showMessage(title, msg,
+                                  QSystemTrayIcon.MessageIcon.Critical, 5000)
 
     def _on_set_clipboard(self, text):
         QApplication.clipboard().setText(text)
 
     def _on_rec_error(self, msg):
         self.overlay.hide()
-        self.tray.showMessage("Wispy", msg,
-                              QSystemTrayIcon.MessageIcon.Critical, 5000)
+        if self.config.get("notify_errors", True):
+            self.tray.showMessage("Wispy", msg,
+                                  QSystemTrayIcon.MessageIcon.Critical, 5000)
+
+    def _on_transcribe_finished(self):
+        self.overlay.hide()
+        self.overlay.set_state("recording")
 
     # ── config ──────────────────────────────────────────────────
 
@@ -413,21 +683,6 @@ class WispyApp(QObject):
                 d.update(json.load(f))
         return d
 
-    def _warmup_local_model(self):
-        """Load local model in background if offline/hybrid mode active."""
-        mode = self.config.get("engine_mode", "online")
-        if mode in ("offline", "hybrid"):
-            threading.Thread(target=self._do_warmup, daemon=True).start()
-
-    def _do_warmup(self):
-        try:
-            from local_transcriber import LocalTranscriber
-            t = LocalTranscriber(
-                model_name=self.config.get("local_model", LOCAL_MODELS[0]))
-            t.warmup()
-        except Exception:
-            pass  # ponytail: model loads lazily on first use anyway
-
     # ── tray ────────────────────────────────────────────────────
 
     def _setup_tray(self):
@@ -439,6 +694,7 @@ class WispyApp(QObject):
         menu.addAction("Toggle Recording", self.toggle_overlay)
         menu.addSeparator()
         menu.addAction("Settings…", self._show_settings)
+        menu.addAction("Appearance…", self._show_appearance)
         menu.addSeparator()
         menu.addAction("Quit", self.quit)
         self.tray.setContextMenu(menu)
@@ -452,6 +708,12 @@ class WispyApp(QObject):
         dlg = SettingsDialog(self.config)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self.config = self._load_config()
+
+    def _show_appearance(self):
+        dlg = AppearanceDialog(self.config)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self.config = self._load_config()
+            self.overlay.apply_appearance(self.config.get("overlay"))
 
     # ── IPC ─────────────────────────────────────────────────────
 
@@ -482,6 +744,8 @@ class WispyApp(QObject):
     # ── recording lifecycle ─────────────────────────────────────
 
     def toggle_overlay(self):
+        if self.overlay.state == "transcribing":
+            return
         if self.overlay.isVisible():
             self._stop_recording()
         else:
@@ -497,49 +761,53 @@ class WispyApp(QObject):
         buffer = self.recorder.stop()
         if buffer is None:
             return
-        self.overlay.hide()
         elapsed = self.recorder.elapsed()
         if elapsed < MIN_DURATION:
-            self.tray.showMessage("Wispy", "Recording too short (min 2s)",
-                                  QSystemTrayIcon.MessageIcon.Information, 2000)
+            self.overlay.hide()
+            if self.config.get("notify_short_recording", True):
+                self.tray.showMessage("Wispy", "Recording too short (min 2s)",
+                                      QSystemTrayIcon.MessageIcon.Information, 2000)
             return
+        self.overlay.set_state("transcribing")
         threading.Thread(target=self._transcribe_and_inject,
                          args=(buffer,), daemon=True).start()
 
     # ── transcription & injection ───────────────────────────────
 
     def _transcribe_and_inject(self, buffer):
-        from transcriber import Transcriber
-        from exceptions import TranscribeError, InvalidAudioError
-        from injector import Injector, check_stop_keyword
-        if not buffer:
-            return
-        t = Transcriber(
-            api_key=self.config.get("groq_api_key")
-                or os.environ.get("GROQ_API_KEY", ""),
-            model=self.config.get("groq_model", MODELS[0]),
-            language=self.config.get("language") or None,
-            clean=self.config.get("clean_text", False),
-            engine_mode=self.config.get("engine_mode", "online"),
-            local_model=self.config.get("local_model", LOCAL_MODELS[0]),
-        )
-        inj = Injector()
         try:
-            text = t.transcribe(buffer)
-            if not text:
+            from transcriber import Transcriber
+            from exceptions import InvalidAudioError
+            from injector import Injector
+            if not buffer:
                 return
-            keyword = self.config.get("stop_keyword", "")
-            text, should_send = check_stop_keyword(text, keyword)
-            if self.config.get("copy_to_clipboard"):
-                self._set_clipboard.emit(text)
-            inj.inject(text, press_enter=should_send)
-        except InvalidAudioError:
-            pass
-        except Exception as e:
-            self._notify.emit("Wispy", str(e))
+            t = Transcriber(
+                api_key=self.config.get("groq_api_key")
+                    or os.environ.get("GROQ_API_KEY", ""),
+                model=self.config.get("groq_model", MODELS[0]),
+                language=self.config.get("language") or None,
+                clean=self.config.get("clean_text", False),
+                engine_mode=self.config.get("engine_mode", "online"),
+                local_model=self.config.get("local_model", LOCAL_MODELS[0]),
+                whisper_prompt=self.config.get("whisper_prompt", ""),
+                clean_prompt=self.config.get("clean_prompt", ""),
+            )
+            inj = Injector()
+            try:
+                text = t.transcribe(buffer)
+                if not text:
+                    return
+                if self.config.get("copy_to_clipboard"):
+                    self._set_clipboard.emit(text)
+                inj.inject(text, send_enter=self.config.get("send_enter", False))
+            except InvalidAudioError:
+                pass
+            except Exception as e:
+                self._notify.emit("Wispy", str(e))
+        finally:
+            self._transcribe_finished.emit()
 
     def quit(self):
-        self._running = False
         self.recorder.stop()
         self._notifier.setEnabled(False)
         self._sock.close()
