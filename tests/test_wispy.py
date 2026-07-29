@@ -153,6 +153,20 @@ def test_styles_module():
     assert hasattr(styles, "DARK_THEME_QSS")
     assert "background-color: #121318" in styles.DARK_THEME_QSS or "#121318" in styles.DARK_THEME_QSS
 
+def test_app_qss_applied():
+    from PyQt6.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication([])
+    from main import WispyApp, SOCKET_PATH
+    wispy_app = WispyApp()
+    try:
+        assert len(wispy_app.app.styleSheet()) > 0
+    finally:
+        wispy_app.recorder.stop()
+        wispy_app._notifier.setEnabled(False)
+        wispy_app._sock.close()
+        SOCKET_PATH.unlink(missing_ok=True)
+
+
 if __name__ == "__main__":
     test_server()
     test_toggle()
@@ -168,7 +182,9 @@ if __name__ == "__main__":
     test_toggle_ignored_during_transcribing()
     test_config_output_mode()
     test_styles_module()
+    test_app_qss_applied()
     print("All tests passed.")
     sys.exit(0)
+
 
 

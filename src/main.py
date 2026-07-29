@@ -13,13 +13,15 @@ from PyQt6.QtCore import Qt, QObject, pyqtSignal, QSocketNotifier, QThread
 from PyQt6.QtGui import QIcon, QPixmap, QColor, QPainter, QPen, QFont
 
 from overlay import OVERLAY_DEFAULTS, _compute_layout
+from styles import DARK_THEME_QSS
 
 
 def _section_label(text):
-    lbl = QLabel(text)
-    f = lbl.font()
-    f.setBold(True)
-    lbl.setFont(f)
+    lbl = QLabel(text.upper())
+    lbl.setStyleSheet(
+        "color: #818cf8; font-size: 11px; font-weight: 700; "
+        "letter-spacing: 1px; margin-top: 14px; margin-bottom: 2px;"
+    )
     return lbl
 
 
@@ -167,13 +169,13 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self.config = config
         self.setWindowTitle("Wispy Settings")
-        self.setMinimumWidth(420)
+        self.setMinimumWidth(480)
         self.setWindowFlags(self.windowFlags()
                             & ~Qt.WindowType.WindowContextHelpButtonHint)
 
         form = QFormLayout(self)
-        form.setContentsMargins(24, 20, 24, 20)
-        form.setVerticalSpacing(10)
+        form.setContentsMargins(28, 24, 28, 24)
+        form.setVerticalSpacing(12)
 
         # ── Transcription ──
         form.addRow(_section_label("Transcription"))
@@ -493,18 +495,27 @@ class AppearanceDialog(QDialog):
         self.config = config
         self.ap = dict(OVERLAY_DEFAULTS, **(config.get("overlay") or {}))
         self.setWindowTitle("Overlay Appearance")
-        self.setMinimumWidth(500)
+        self.setMinimumWidth(540)
         self.setWindowFlags(self.windowFlags()
                             & ~Qt.WindowType.WindowContextHelpButtonHint)
         self._color_btns = {}
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(16, 12, 16, 12)
+        root.setContentsMargins(28, 24, 28, 24)
 
         # preview
         self.preview = OverlayPreview()
         self.preview.set_appearance(self.ap)
-        root.addWidget(self.preview, alignment=Qt.AlignmentFlag.AlignHCenter)
+        preview_card = QWidget()
+        preview_card.setStyleSheet(
+            "background-color: rgba(255, 255, 255, 0.02); "
+            "border: 1px solid rgba(255, 255, 255, 0.08); "
+            "border-radius: 14px; padding: 16px;"
+        )
+        card_layout = QVBoxLayout(preview_card)
+        card_layout.setContentsMargins(0, 0, 0, 0)
+        card_layout.addWidget(self.preview, alignment=Qt.AlignmentFlag.AlignHCenter)
+        root.addWidget(preview_card)
 
         # scrollable controls
         scroll = QScrollArea()
@@ -513,7 +524,7 @@ class AppearanceDialog(QDialog):
         form = QWidget()
         fl = QFormLayout(form)
         fl.setContentsMargins(8, 8, 8, 8)
-        fl.setVerticalSpacing(6)
+        fl.setVerticalSpacing(10)
 
         # ── Pill ──
         fl.addRow(_section_label("Pill"))
@@ -639,6 +650,7 @@ class WispyApp(QObject):
         self.app = QApplication.instance() or QApplication(sys.argv)
         self.app.setApplicationName("Wispy")
         self.app.setQuitOnLastWindowClosed(False)
+        self.app.setStyleSheet(DARK_THEME_QSS)
 
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         self.config = self._load_config()
