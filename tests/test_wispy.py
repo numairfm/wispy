@@ -41,6 +41,30 @@ def test_transcriber_defaults_used_when_empty():
     assert t.whisper_prompt == DEFAULT_WHISPER_PROMPT
     assert t.clean_prompt == DEFAULT_CLEAN_PROMPT
 
+def test_overlay_states():
+    from PyQt6.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication([])
+    from overlay import OverlayWindow
+    stopped = False
+    def on_stop():
+        nonlocal stopped
+        stopped = True
+
+    ov = OverlayWindow(on_stop=on_stop, level_getter=lambda: 0.0)
+    assert ov.state == "recording"
+    ov.set_state("transcribing")
+    assert ov.state == "transcribing"
+
+    # In transcribing state, mouse press on stop button position should be ignored
+    from PyQt6.QtGui import QMouseEvent
+    from PyQt6.QtCore import QPointF, Qt
+    event = QMouseEvent(QMouseEvent.Type.MouseButtonPress, QPointF(ov._lay["bt_x"], ov._ap["height"] / 2), Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+    ov.mousePressEvent(event)
+    assert not stopped
+
+    ov.reset()
+    assert ov.state == "recording"
+
 if __name__ == "__main__":
     test_server()
     test_toggle()
@@ -51,4 +75,5 @@ if __name__ == "__main__":
     test_clean_prompt_default()
     test_transcriber_custom_prompts()
     test_transcriber_defaults_used_when_empty()
+    test_overlay_states()
     print("All tests passed.")
