@@ -82,9 +82,11 @@ def test_toggle_ignored_during_transcribing():
         assert wispy_app.overlay.state == "transcribing"
         wispy_app.overlay.hide()
     finally:
-        wispy_app.quit()
-        if hasattr(wispy_app, '_sock'):
-            wispy_app._sock.close()
+        wispy_app.recorder.stop()
+        wispy_app._notifier.setEnabled(False)
+        wispy_app._sock.close()
+        from main import SOCKET_PATH
+        SOCKET_PATH.unlink(missing_ok=True)
 
 def test_injector_modes():
     from unittest.mock import patch
@@ -125,6 +127,31 @@ def test_injector_modes():
             {"check": True, "capture_output": True, "timeout": 5},
         )
 
+def test_config_output_mode():
+    from main import WispyApp, SettingsDialog, SOCKET_PATH
+    from PyQt6.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication([])
+    wispy_app = WispyApp()
+    try:
+        assert wispy_app.config.get("output_mode") == "paste"
+
+        dlg = SettingsDialog(wispy_app.config)
+        assert dlg.output_mode.count() == 3
+        assert dlg.output_mode.currentIndex() == 0  # paste
+
+        dlg.output_mode.setCurrentIndex(1)
+        dlg._save()
+        assert wispy_app.config.get("output_mode") == "type"
+
+        dlg.output_mode.setCurrentIndex(2)
+        dlg._save()
+        assert wispy_app.config.get("output_mode") == "copy"
+    finally:
+        wispy_app.recorder.stop()
+        wispy_app._notifier.setEnabled(False)
+        wispy_app._sock.close()
+        SOCKET_PATH.unlink(missing_ok=True)
+
 if __name__ == "__main__":
     test_server()
     test_toggle()
@@ -138,6 +165,7 @@ if __name__ == "__main__":
     test_injector_modes()
     test_overlay_states()
     test_toggle_ignored_during_transcribing()
+    test_config_output_mode()
     print("All tests passed.")
     sys.exit(0)
 

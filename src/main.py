@@ -250,6 +250,12 @@ class SettingsDialog(QDialog):
         # ── Behavior ──
         form.addRow(_section_label("Behavior"))
 
+        self.output_mode = QComboBox()
+        self.output_mode.addItems(["Paste (Clipboard + Ctrl+V)", "Type (character by character)", "Copy to Clipboard Only"])
+        mode_map = {"paste": 0, "type": 1, "copy": 2}
+        self.output_mode.setCurrentIndex(mode_map.get(config.get("output_mode", "paste"), 0))
+        form.addRow("Output Mode", self.output_mode)
+
         self.copy_clipboard = QCheckBox("Copy transcribed text to clipboard")
         self.copy_clipboard.setChecked(config.get("copy_to_clipboard", False))
         form.addRow(self.copy_clipboard)
@@ -365,6 +371,8 @@ class SettingsDialog(QDialog):
         self.config["local_model"] = self.local_model.currentText()
         self.config["input_device"] = self.device.currentData() or ""
         self.config["copy_to_clipboard"] = self.copy_clipboard.isChecked()
+        mode_rev_map = {0: "paste", 1: "type", 2: "copy"}
+        self.config["output_mode"] = mode_rev_map[self.output_mode.currentIndex()]
         self.config["send_enter"] = self.send_enter.isChecked()
         self.config["clean_text"] = self.clean_text.isChecked()
         self.config["clean_prompt"] = self.clean_prompt.text().strip()
@@ -628,7 +636,7 @@ class WispyApp(QObject):
 
     def __init__(self):
         super().__init__()
-        self.app = QApplication(sys.argv)
+        self.app = QApplication.instance() or QApplication(sys.argv)
         self.app.setApplicationName("Wispy")
         self.app.setQuitOnLastWindowClosed(False)
 
@@ -677,7 +685,8 @@ class WispyApp(QObject):
         d = {"groq_api_key": os.environ.get("GROQ_API_KEY", ""),
              "groq_model": MODELS[0], "language": "",
              "clean_text": False, "engine_mode": "online",
-             "local_model": LOCAL_MODELS[0]}
+             "local_model": LOCAL_MODELS[0],
+             "output_mode": "paste"}
         if CONFIG_FILE.exists():
             with open(CONFIG_FILE) as f:
                 d.update(json.load(f))
@@ -797,9 +806,10 @@ class WispyApp(QObject):
                 text = t.transcribe(buffer)
                 if not text:
                     return
-                if self.config.get("copy_to_clipboard"):
+                output_mode = self.config.get("output_mode", "paste")
+                if output_mode in ("paste", "copy") or self.config.get("copy_to_clipboard"):
                     self._set_clipboard.emit(text)
-                inj.inject(text, send_enter=self.config.get("send_enter", False))
+                inj.inject(text, mode=output_mode, send_enter=self.config.get("send_enter", False))
             except InvalidAudioError:
                 pass
             except Exception as e:
