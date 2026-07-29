@@ -133,17 +133,13 @@ def test_config_output_mode():
             app = QApplication.instance() or QApplication([])
             wispy_app = WispyApp()
             try:
-                assert wispy_app.config.get("output_mode") in ("paste", "type", "copy")
+                assert wispy_app.config.get("output_mode") in ("paste", "copy")
 
                 dlg = SettingsDialog(wispy_app.config)
-                assert dlg.output_mode.count() == 3
+                assert dlg.output_mode.count() == 2
                 assert dlg.output_mode.currentIndex() == 0  # paste
 
                 dlg.output_mode.setCurrentIndex(1)
-                dlg._save()
-                assert wispy_app.config.get("output_mode") == "type"
-
-                dlg.output_mode.setCurrentIndex(2)
                 dlg._save()
                 assert wispy_app.config.get("output_mode") == "copy"
             finally:

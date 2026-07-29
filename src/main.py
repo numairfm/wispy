@@ -251,8 +251,8 @@ class SettingsDialog(QDialog):
         form.addRow(_section_label("Behavior"))
 
         self.output_mode = QComboBox()
-        self.output_mode.addItems(["Paste (Clipboard + Ctrl+V)", "Type (character by character)", "Copy to Clipboard Only"])
-        mode_map = {"paste": 0, "type": 1, "copy": 2}
+        self.output_mode.addItems(["Paste Automatically (Clipboard + Paste)", "Save to Clipboard Only"])
+        mode_map = {"paste": 0, "copy": 1}
         self.output_mode.setCurrentIndex(mode_map.get(config.get("output_mode", "paste"), 0))
         form.addRow("Output Mode", self.output_mode)
 
@@ -371,8 +371,8 @@ class SettingsDialog(QDialog):
         self.config["local_model"] = self.local_model.currentText()
         self.config["input_device"] = self.device.currentData() or ""
         self.config["copy_to_clipboard"] = self.copy_clipboard.isChecked()
-        mode_rev_map = {0: "paste", 1: "type", 2: "copy"}
-        self.config["output_mode"] = mode_rev_map[self.output_mode.currentIndex()]
+        mode_rev_map = {0: "paste", 1: "copy"}
+        self.config["output_mode"] = mode_rev_map.get(self.output_mode.currentIndex(), "paste")
         self.config["send_enter"] = self.send_enter.isChecked()
         self.config["clean_text"] = self.clean_text.isChecked()
         self.config["clean_prompt"] = self.clean_prompt.text().strip()
