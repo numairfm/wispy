@@ -7,9 +7,9 @@ class Injector:
     def inject(self, text, mode="paste", send_enter=False):
         try:
             if mode == "paste":
-                # Send Ctrl+V with 12ms key delay so Wayland processes modifiers
+                # Send Ctrl+Shift+V with 12ms key delay so Wayland processes modifiers
                 subprocess.run(
-                    ["ydotool", "key", "-d", "12", "29:1", "47:1", "47:0", "29:0"],
+                    ["ydotool", "key", "-d", "12", "29:1", "42:1", "47:1", "47:0", "42:0", "29:0"],
                     check=True, capture_output=True, timeout=5,
                 )
             elif mode == "copy":
