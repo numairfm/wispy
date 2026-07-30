@@ -1,10 +1,10 @@
-import os
+import io
 import re
-import tempfile
 import threading
 import time
 import random
 
+import httpx
 import groq
 
 from recorder import encode_wav
@@ -35,6 +35,17 @@ class Transcriber:
         self.local_model = local_model
         self.whisper_prompt = whisper_prompt or DEFAULT_WHISPER_PROMPT
         self._local = None
+        self._client = None
+
+    def get_client(self):
+        if not self.api_key:
+            return None
+        if self._client is None:
+            http_client = httpx.Client(
+                limits=httpx.Limits(max_connections=20, max_keepalive_connections=10, keepalive_expiry=120.0)
+            )
+            self._client = groq.Groq(api_key=self.api_key, http_client=http_client)
+        return self._client
 
     def _is_connection_error(self, exc):
         """True for network-level failures worth retrying.
@@ -47,26 +58,21 @@ class Transcriber:
         return isinstance(cause, conn_types)
 
     def _whisper(self, wav_bytes, timeout=None):
-        client = groq.Groq(api_key=self.api_key, timeout=timeout)
-        tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+        client = self.get_client()
+        if not client:
+            raise GroqError("No API key provided")
+        buf = io.BytesIO(wav_bytes)
+        buf.name = "speech.wav"
         try:
-            tmp.write(wav_bytes)
-            tmp.close()
-            with open(tmp.name, "rb") as f:
-                result = client.audio.transcriptions.create(
-                    model=self.model,
-                    file=f,
-                    language=self.language or None,
-                    prompt=self.whisper_prompt,
-                )
+            result = client.audio.transcriptions.create(
+                model=self.model,
+                file=buf,
+                language=self.language or None,
+                prompt=self.whisper_prompt,
+            )
             return result.text.strip()
         except Exception as e:
             raise GroqError(str(e)) from e
-        finally:
-            try:
-                os.unlink(tmp.name)
-            except OSError:
-                pass
 
     def _casual(self, raw_text):
         """Casual messaging style: all lowercase, no apostrophes,
