@@ -178,6 +178,76 @@ def test_app_qss_applied():
         SOCKET_PATH.unlink(missing_ok=True)
 
 
+def test_cloud_first_cloud_success():
+    t = Transcriber(api_key="test", model="whisper-large-v3-turbo")
+    t._whisper = lambda wav, timeout=None: "cloud result"
+    text, used_local = t.transcribe_cloud_first(b"fake-wav", [1, 2, 3, 4, 5])
+    assert text == "cloud result"
+    assert used_local is False
+
+
+def test_cloud_first_local_wins_race():
+    """Connection errors -> local processes while cloud retries -> local wins."""
+    import groq
+    import transcriber as tm
+    import time as _time
+
+    call_count = [0]
+    def failing_whisper(wav, timeout=None):
+        call_count[0] += 1
+        raise groq.APIConnectionError(request=None)
+
+    def slow_local(chunks):
+        _time.sleep(0.5)  # slow so fast retries exhaust first
+        return "local wins"
+
+    t = Transcriber(api_key="test", model="whisper-large-v3-turbo")
+    t._whisper = failing_whisper
+    t._transcribe_local = slow_local
+
+    old_backoff = tm.FAST_RETRY_BACKOFF
+    tm.FAST_RETRY_BACKOFF = [0.01, 0.01]
+    try:
+        text, used_local = t.transcribe_cloud_first(b"fake-wav", [1, 2, 3, 4, 5])
+        assert text == "local wins"
+        assert used_local is True
+        assert call_count[0] == 3  # initial + 2 fast retries
+    finally:
+        tm.FAST_RETRY_BACKOFF = old_backoff
+
+
+def test_cloud_first_cloud_wins_during_retry():
+    """Connection error then cloud recovers during fast retry."""
+    import groq
+    import transcriber as tm
+    import time as _time
+
+    call_count = [0]
+    def recovering_whisper(wav, timeout=None):
+        call_count[0] += 1
+        if call_count[0] == 1:
+            raise groq.APIConnectionError(request=None)
+        return "cloud recovered"
+
+    def slow_local(chunks):
+        _time.sleep(1.0)  # slow so cloud retry wins
+        return "local"
+
+    t = Transcriber(api_key="test", model="whisper-large-v3-turbo")
+    t._whisper = recovering_whisper
+    t._transcribe_local = slow_local
+
+    old_backoff = tm.FAST_RETRY_BACKOFF
+    tm.FAST_RETRY_BACKOFF = [0.5, 2.0]  # give local time to NOT finish first
+    try:
+        text, used_local = t.transcribe_cloud_first(b"fake-wav", [1, 2, 3, 4, 5])
+        assert text == "cloud recovered"
+        assert used_local is False
+        assert call_count[0] == 2
+    finally:
+        tm.FAST_RETRY_BACKOFF = old_backoff
+
+
 if __name__ == "__main__":
     test_server()
     test_toggle()
@@ -194,6 +264,9 @@ if __name__ == "__main__":
     test_config_output_mode()
     test_styles_module()
     test_app_qss_applied()
+    test_cloud_first_cloud_success()
+    test_cloud_first_local_wins_race()
+    test_cloud_first_cloud_wins_during_retry()
     print("All tests passed.")
     sys.exit(0)
 

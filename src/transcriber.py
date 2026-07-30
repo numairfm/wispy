@@ -1,11 +1,22 @@
 import os
 import tempfile
-import concurrent.futures
+import threading
+import time
+import random
 
 import groq
 
 from recorder import encode_wav
 from exceptions import InvalidAudioError, MissingKeyError, GroqError, LocalModelNotFoundError
+
+
+# Fast cloud retries: race against local processing
+FAST_RETRY_BACKOFF = [1.0, 2.0]
+
+# Background retry: continues after local wins, longer backoff
+BG_INITIAL_BACKOFF = 4.0
+BG_MAX_BACKOFF = 60.0
+BG_MAX_ATTEMPTS = 8
 
 
 DEFAULT_WHISPER_PROMPT = ""
@@ -32,9 +43,14 @@ class Transcriber:
         self._local = None
 
     def _is_connection_error(self, exc):
-        """True for network-level failures worth retrying."""
+        """True for network-level failures worth retrying.
+        Checks the exception and its __cause__ (since _whisper wraps in GroqError)."""
         import groq
-        return isinstance(exc, (groq.APIConnectionError, groq.APITimeoutError))
+        conn_types = (groq.APIConnectionError, groq.APITimeoutError)
+        if isinstance(exc, conn_types):
+            return True
+        cause = getattr(exc, '__cause__', None)
+        return isinstance(cause, conn_types)
 
     def _whisper(self, wav_bytes, timeout=None):
         client = groq.Groq(api_key=self.api_key, timeout=timeout)
@@ -77,22 +93,65 @@ class Transcriber:
         except Exception:
             return raw_text
 
-    def _race_hybrid(self, wav_bytes, chunks):
-        """Run cloud and local in parallel, return first to finish."""
-        def _do_cloud():
-            return self._whisper(wav_bytes, timeout=2)
+    def transcribe_cloud_first(self, wav_bytes, chunks):
+        """Try cloud first. On connection error, race local vs cloud retries.
+        Returns (text, used_local_fallback)."""
+        # First cloud attempt
+        try:
+            return self._whisper(wav_bytes), False
+        except Exception as e:
+            if not self._is_connection_error(e):
+                if isinstance(e, GroqError):
+                    return self._transcribe_local(chunks), True
+                raise
 
-        def _do_local():
-            return self._transcribe_local(chunks)
+        # Connection error — start local in parallel, retry cloud
+        local_result = [None]
+        local_done = threading.Event()
+        def run_local():
+            try:
+                local_result[0] = self._transcribe_local(chunks)
+            finally:
+                local_done.set()
+        local_thread = threading.Thread(target=run_local, daemon=True)
+        local_thread.start()
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-            futures = [pool.submit(_do_cloud), pool.submit(_do_local)]
-            for future in concurrent.futures.as_completed(futures):
+        # Fast cloud retries — race against local
+        for backoff in FAST_RETRY_BACKOFF:
+            local_done.wait(timeout=backoff)
+            if local_done.is_set():
+                return local_result[0], True
+            try:
+                return self._whisper(wav_bytes), False
+            except Exception as e:
+                if not self._is_connection_error(e):
+                    if isinstance(e, GroqError):
+                        local_done.wait()
+                        return local_result[0], True
+                    raise
+
+        # Fast retries exhausted — wait for local
+        local_done.wait()
+        return local_result[0], True
+
+    def retry_cloud_async(self, wav_bytes, on_success, on_fail):
+        """Background retry with exponential backoff after local wins."""
+        def _retry():
+            backoff = BG_INITIAL_BACKOFF
+            for attempt in range(BG_MAX_ATTEMPTS):
+                time.sleep(backoff + random.uniform(0, backoff * 0.3))
                 try:
-                    return future.result()
-                except Exception:
-                    continue
-        raise GroqError("Both cloud and local transcription failed")
+                    text = self._whisper(wav_bytes)
+                    if text:
+                        on_success(text)
+                        return
+                except Exception as e:
+                    if not self._is_connection_error(e):
+                        on_fail()
+                        return
+                backoff = min(backoff * 2, BG_MAX_BACKOFF)
+            on_fail()
+        threading.Thread(target=_retry, daemon=True).start()
 
     def transcribe(self, chunks):
         if not chunks or len(chunks) < 5:
@@ -107,10 +166,8 @@ class Transcriber:
         wav_bytes = encode_wav(chunks)
 
         if self.engine_mode == "hybrid":
-            try:
-                return self._clean(self._race_hybrid(wav_bytes, chunks))
-            except GroqError:
-                return self._clean(self._transcribe_local(chunks))
+            text, used_local = self.transcribe_cloud_first(wav_bytes, chunks)
+            return self._clean(text)
 
         return self._clean(self._whisper(wav_bytes))
 
