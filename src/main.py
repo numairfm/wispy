@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
     QLabel, QProgressBar, QWidget, QColorDialog,
 )
 from PyQt6.QtCore import Qt, QObject, pyqtSignal, QSocketNotifier, QThread, QTimer
-from PyQt6.QtGui import QIcon, QPixmap, QColor, QPainter, QPen, QFont
+from PyQt6.QtGui import QIcon, QPixmap, QColor, QPainter, QPen, QFont, QAction
 
 from overlay import OVERLAY_DEFAULTS, _compute_layout
 from styles import DARK_THEME_QSS
@@ -285,19 +285,6 @@ class SettingsDialog(QDialog):
         self.notify_short.setChecked(config.get("notify_short_recording", True))
         form.addRow(self.notify_short)
 
-        # ── Experimental ──
-        form.addRow(_section_label("Experimental"))
-
-        self.clean_text = QCheckBox("AI Clean (punctuation, formatting)")
-        self.clean_text.setChecked(config.get("clean_text", False))
-        self.clean_text.toggled.connect(self._on_clean_toggled)
-        form.addRow(self.clean_text)
-
-        self.clean_prompt = QLineEdit(config.get("clean_prompt", ""))
-        self.clean_prompt.setPlaceholderText("System prompt for AI cleanup")
-        self.clean_prompt.setEnabled(config.get("clean_text", False))
-        form.addRow("Clean Prompt", self.clean_prompt)
-
         scroll.setWidget(form_widget)
         root.addWidget(scroll)
 
@@ -322,9 +309,6 @@ class SettingsDialog(QDialog):
         self.model.setEnabled(online)
         self.language.setEnabled(online)
         self.whisper_prompt.setEnabled(online)
-
-    def _on_clean_toggled(self, checked):
-        self.clean_prompt.setEnabled(checked)
 
     def _on_local_model_changed(self, name):
         self._update_model_status()
@@ -388,8 +372,6 @@ class SettingsDialog(QDialog):
         mode_rev_map = {0: "paste", 1: "copy"}
         self.config["output_mode"] = mode_rev_map.get(self.output_mode.currentIndex(), "paste")
         self.config["send_enter"] = self.send_enter.isChecked()
-        self.config["clean_text"] = self.clean_text.isChecked()
-        self.config["clean_prompt"] = self.clean_prompt.text().strip()
         self.config["whisper_prompt"] = self.whisper_prompt.text().strip()
         self.config["notify_errors"] = self.notify_errors.isChecked()
         self.config["notify_short_recording"] = self.notify_short.isChecked()
@@ -722,7 +704,7 @@ class WispyApp(QObject):
     def _load_config(self) -> dict:
         d = {"groq_api_key": os.environ.get("GROQ_API_KEY", ""),
              "groq_model": MODELS[0], "language": "",
-             "clean_text": False, "engine_mode": "online",
+             "casual_mode": False, "engine_mode": "online",
              "local_model": LOCAL_MODELS[0],
              "output_mode": "paste"}
         if CONFIG_FILE.exists():
@@ -740,6 +722,11 @@ class WispyApp(QObject):
         menu = QMenu()
         menu.addAction("Toggle Recording", self.toggle_overlay)
         menu.addSeparator()
+        self.casual_action = menu.addAction("Casual Mode")
+        self.casual_action.setCheckable(True)
+        self.casual_action.setChecked(self.config.get("casual_mode", False))
+        self.casual_action.toggled.connect(self._on_casual_toggled)
+        menu.addSeparator()
         menu.addAction("Settings…", self._show_settings)
         menu.addAction("Appearance…", self._show_appearance)
         menu.addSeparator()
@@ -750,6 +737,15 @@ class WispyApp(QObject):
     def _on_tray(self, reason):
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
             self.toggle_overlay()
+
+    def _on_casual_toggled(self, checked):
+        self.config["casual_mode"] = checked
+        self._save_config()
+
+    def _save_config(self):
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        with open(CONFIG_FILE, "w") as f:
+            json.dump(self.config, f, indent=2)
 
     def _show_settings(self):
         dlg = SettingsDialog(self.config)
@@ -834,11 +830,10 @@ class WispyApp(QObject):
                     or os.environ.get("GROQ_API_KEY", ""),
                 model=self.config.get("groq_model", MODELS[0]),
                 language=self.config.get("language") or None,
-                clean=self.config.get("clean_text", False),
+                casual=self.config.get("casual_mode", False),
                 engine_mode=self.config.get("engine_mode", "online"),
                 local_model=self.config.get("local_model", LOCAL_MODELS[0]),
                 whisper_prompt=self.config.get("whisper_prompt", ""),
-                clean_prompt=self.config.get("clean_prompt", ""),
             )
             inj = Injector()
             try:
@@ -849,7 +844,7 @@ class WispyApp(QObject):
                 if self.config.get("engine_mode") == "hybrid" and t.api_key:
                     wav_bytes = encode_wav(buffer)
                     text, used_local = t.transcribe_cloud_first(wav_bytes, buffer)
-                    text = t._clean(text)
+                    text = t._casual(text)
                 else:
                     text = t.transcribe(buffer)
 
@@ -871,7 +866,7 @@ class WispyApp(QObject):
                     wav_bytes = encode_wav(buffer)
 
                     def on_retry_success(cloud_text):
-                        cleaned = t._clean(cloud_text)
+                        cleaned = t._casual(cloud_text)
                         self._set_clipboard.emit(cleaned)
                         self._corrected.emit()
 

@@ -1,8 +1,26 @@
+import io
+import wave
 import threading
 import time
 
 import numpy as np
 import sounddevice as sd
+
+
+def encode_wav(chunks):
+    """Concat audio chunks (float32) → WAV bytes, 16kHz mono int16.
+    Pads 0.3s silence at start/end so Whisper doesn't clip boundary audio."""
+    audio = np.concatenate(chunks, axis=0)
+    pad = np.zeros((4800, 1), dtype=np.float32)  # 0.3s at 16kHz
+    audio = np.concatenate([pad, audio, pad], axis=0)
+    audio_int16 = (audio * 32767).astype(np.int16)
+    buf = io.BytesIO()
+    with wave.open(buf, 'wb') as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(16000)
+        wf.writeframes(audio_int16.tobytes())
+    return buf.getvalue()
 
 
 def resolve_device(name, devices=None):
@@ -42,7 +60,6 @@ class Recorder:
         self._rms_buf = [0.0] * 20
         self._start_time = time.monotonic()
         self._recording = True
-        self.last_error = None
         threading.Thread(target=self._open_stream, daemon=True).start()
 
     def _open_stream(self):
@@ -62,7 +79,6 @@ class Recorder:
                 self._stream = stream
         except Exception as e:
             self._recording = False
-            self.last_error = str(e)
             if self.on_error:
                 self.on_error(str(e))
 

@@ -119,8 +119,8 @@ QCheckBox::indicator:hover {
 }
 
 QCheckBox::indicator:checked {
-    background-color: #ffffff;
-    border: 1px solid #ffffff;
+    background-color: #22c55e;
+    border: 1px solid #22c55e;
 }
 
 QSlider::groove:horizontal {

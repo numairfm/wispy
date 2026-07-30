@@ -13,5 +13,5 @@ class InvalidAudioError(TranscribeError):
 class LocalModelNotFoundError(TranscribeError):
     pass
 
-class InjectError(TranscribeError):
+class InjectError(Exception):
     pass

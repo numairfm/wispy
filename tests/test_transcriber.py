@@ -20,7 +20,7 @@ def test_encode_wav_shape():
     from transcriber import Transcriber
     import numpy as np
     import wave, io
-    t = Transcriber(api_key="x", model="m", language=None, clean=False)
+    t = Transcriber(api_key="x", model="m", language=None, casual=False)
     chunk = np.zeros((16000, 1), dtype=np.float32)
     wav_bytes = t._encode_wav([chunk])
     assert isinstance(wav_bytes, bytes)
@@ -34,7 +34,7 @@ def test_encode_wav_shape():
 
 def test_transcribe_empty_raises():
     from transcriber import Transcriber
-    t = Transcriber(api_key="x", model="m", language=None, clean=False)
+    t = Transcriber(api_key="x", model="m", language=None, casual=False)
     try:
         t.transcribe([])
         assert False, "should have raised"
@@ -44,7 +44,7 @@ def test_transcribe_empty_raises():
 def test_transcribe_short_raises():
     from transcriber import Transcriber
     import numpy as np
-    t = Transcriber(api_key="x", model="m", language=None, clean=False)
+    t = Transcriber(api_key="x", model="m", language=None, casual=False)
     chunk = np.zeros((100, 1), dtype=np.float32)
     try:
         t.transcribe([chunk])  # 1 chunk < 5
@@ -56,7 +56,7 @@ def test_transcribe_no_key_raises():
     from transcriber import Transcriber
     from exceptions import MissingKeyError
     import numpy as np
-    t = Transcriber(api_key="", model="m", language=None, clean=False)
+    t = Transcriber(api_key="", model="m", language=None, casual=False)
     chunk = np.zeros((16000, 1), dtype=np.float32)
     try:
         t.transcribe([chunk] * 5)
@@ -68,7 +68,7 @@ def test_whisper_calls_groq():
     """_whisper should call groq client and return result.text."""
     from unittest.mock import patch, MagicMock
     from transcriber import Transcriber
-    t = Transcriber(api_key="test-key", model="whisper-large-v3", language="en", clean=False)
+    t = Transcriber(api_key="test-key", model="whisper-large-v3", language="en", casual=False)
     fake_wav = b"RIFF" + b"\x00" * 100
 
     mock_client = MagicMock()
@@ -84,45 +84,23 @@ def test_whisper_calls_groq():
     mock_client.audio.transcriptions.create.assert_called_once()
 
 
-def test_clean_skips_short_text():
+def test_casual_transform():
     from transcriber import Transcriber
-    t = Transcriber(api_key="k", model="m", language=None, clean=True)
-    assert t._clean("hi there") == "hi there"
+    t = Transcriber(api_key="k", model="m", language=None, casual=True)
+    assert t._casual("I don't know. Hey, are you there?") == "i dont know, hey, are you there?"
 
-def test_clean_skips_when_disabled():
+def test_casual_off_passes_through():
     from transcriber import Transcriber
-    t = Transcriber(api_key="k", model="m", language=None, clean=False)
-    assert t._clean("one two three four five") == "one two three four five"
-
-def test_clean_calls_groq_when_enabled():
-    from unittest.mock import patch, MagicMock
-    from transcriber import Transcriber
-    t = Transcriber(api_key="k", model="m", language=None, clean=True)
-    mock_client = MagicMock()
-    mock_choice = MagicMock()
-    mock_choice.message.content = "cleaned text"
-    mock_client.chat.completions.create.return_value = MagicMock(choices=[mock_choice])
-    with patch("transcriber.groq") as mock_groq:
-        mock_groq.Groq.return_value = mock_client
-        result = t._clean("one two three four five six")
-    assert result == "cleaned text"
-
-def test_clean_falls_back_on_error():
-    from unittest.mock import patch, MagicMock
-    from transcriber import Transcriber
-    t = Transcriber(api_key="k", model="m", language=None, clean=True)
-    with patch("transcriber.groq") as mock_groq:
-        mock_groq.Groq.side_effect = Exception("api down")
-        result = t._clean("one two three four five six")
-    assert result == "one two three four five six"
+    t = Transcriber(api_key="k", model="m", language=None, casual=False)
+    assert t._casual("I DON'T Know.") == "I DON'T Know."
 
 
 def test_transcribe_end_to_end():
-    """Full pipeline: encode → whisper → clean → return text."""
+    """Full pipeline: encode → whisper → return text."""
     from unittest.mock import patch, MagicMock
     from transcriber import Transcriber
     import numpy as np
-    t = Transcriber(api_key="test-key", model="m", language=None, clean=False)
+    t = Transcriber(api_key="test-key", model="m", language=None, casual=False)
     chunks = [np.zeros((16000, 1), dtype=np.float32) for _ in range(5)]
     mock_client = MagicMock()
     mock_result = MagicMock()

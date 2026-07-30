@@ -1,4 +1,5 @@
 import os
+import re
 import tempfile
 import threading
 import time
@@ -21,25 +22,18 @@ BG_MAX_ATTEMPTS = 8
 
 DEFAULT_WHISPER_PROMPT = ""
 
-DEFAULT_CLEAN_PROMPT = (
-    "This is raw speech-to-text output. The user is dictating. "
-    "Add proper punctuation and fix sentence capitalization. "
-    "Do not remove or rephrase any content. Return only the cleaned text."
-)
-
 
 class Transcriber:
-    def __init__(self, api_key, model, language=None, clean=False,
+    def __init__(self, api_key, model, language=None, casual=False,
                  engine_mode="online", local_model="base.en",
-                 whisper_prompt="", clean_prompt=""):
+                 whisper_prompt=""):
         self.api_key = api_key
         self.model = model
         self.language = language
-        self.clean = clean
+        self.casual = casual
         self.engine_mode = engine_mode
         self.local_model = local_model
         self.whisper_prompt = whisper_prompt or DEFAULT_WHISPER_PROMPT
-        self.clean_prompt = clean_prompt or DEFAULT_CLEAN_PROMPT
         self._local = None
 
     def _is_connection_error(self, exc):
@@ -74,24 +68,18 @@ class Transcriber:
             except OSError:
                 pass
 
-    def _clean(self, raw_text):
-        if not self.clean or len(raw_text.split()) < 5:
+    def _casual(self, raw_text):
+        """Casual messaging style: all lowercase, no apostrophes,
+        sentence-ending periods become commas, last period stripped.
+        Keeps commas, ?, !. Local + instant, no API call."""
+        if not self.casual or not raw_text:
             return raw_text
-        try:
-            client = groq.Groq(api_key=self.api_key)
-            result = client.chat.completions.create(
-                model="llama-3.1-8b-instant",
-                messages=[
-                    {"role": "system", "content": self.clean_prompt},
-                    {"role": "user", "content": raw_text},
-                ],
-                temperature=0.3,
-                max_tokens=2048,
-            )
-            cleaned = result.choices[0].message.content.strip()
-            return cleaned if cleaned else raw_text
-        except Exception:
-            return raw_text
+        t = raw_text.lower()
+        t = t.replace("'", "")      # dont, thats, im
+        t = t.replace(". ", ", ")   # sentence breaks -> commas
+        t = t.replace(".", "")      # any stray/trailing period
+        t = re.sub(r"\s{2,}", " ", t).strip(" ,")
+        return t
 
     def transcribe_cloud_first(self, wav_bytes, chunks):
         """Try cloud first. On connection error, race local vs cloud retries.
@@ -158,7 +146,7 @@ class Transcriber:
             raise InvalidAudioError("Recording too short")
 
         if self.engine_mode == "offline":
-            return self._clean(self._transcribe_local(chunks))
+            return self._casual(self._transcribe_local(chunks))
 
         if not self.api_key:
             raise MissingKeyError("Set GROQ_API_KEY in Settings or env")
@@ -167,9 +155,9 @@ class Transcriber:
 
         if self.engine_mode == "hybrid":
             text, used_local = self.transcribe_cloud_first(wav_bytes, chunks)
-            return self._clean(text)
+            return self._casual(text)
 
-        return self._clean(self._whisper(wav_bytes))
+        return self._casual(self._whisper(wav_bytes))
 
     def _transcribe_local(self, chunks):
         if self._local is None:

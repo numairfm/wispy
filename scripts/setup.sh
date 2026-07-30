@@ -53,7 +53,8 @@ do_install() {
 # wispy — fast toggle (system python3), delegates server to wispy-server
 case "$1" in
     toggle) exec "$HOME/.local/bin/wispy-toggle.sh" ;;
-    "")     exec "$HOME/.local/bin/wispy-server" "--help" ;;
+    "")     exec "$HOME/.local/bin/wispy-server" "server" ;;
+    help)   exec "$HOME/.local/bin/wispy-server" "--help" ;;
     *)      exec "$HOME/.local/bin/wispy-server" "$@" ;;
 esac
 WRAPPER

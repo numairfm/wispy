@@ -1,8 +1,6 @@
-import io
 import re
-import wave
-import numpy as np
 
+from recorder import encode_wav
 from exceptions import InvalidAudioError, LocalModelNotFoundError
 
 
@@ -30,22 +28,11 @@ class LocalTranscriber:
                 f"Could not load model '{self.model_name}': {e}"
             )
 
-    def _encode_wav(self, chunks):
-        audio = np.concatenate(chunks, axis=0)
-        audio_int16 = (audio * 32767).astype(np.int16)
-        buf = io.BytesIO()
-        with wave.open(buf, 'wb') as wf:
-            wf.setnchannels(1)
-            wf.setsampwidth(2)
-            wf.setframerate(16000)
-            wf.writeframes(audio_int16.tobytes())
-        return buf.getvalue()
-
     def transcribe(self, chunks, language=None):
         if not chunks or len(chunks) < 5:
             raise InvalidAudioError("Recording too short")
         self._ensure_model()
-        wav_bytes = self._encode_wav(chunks)
+        wav_bytes = encode_wav(chunks)
         # faster-whisper accepts file path or file-like
         import tempfile, os
         tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)

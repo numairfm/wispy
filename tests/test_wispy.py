@@ -4,7 +4,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from main import parse_args, MIN_DURATION
-from transcriber import DEFAULT_WHISPER_PROMPT, DEFAULT_CLEAN_PROMPT, Transcriber
+from transcriber import DEFAULT_WHISPER_PROMPT, Transcriber
 
 def test_server():
     assert parse_args(["server"]) == "server"
@@ -25,10 +25,6 @@ def test_whisper_prompt_default():
     assert isinstance(DEFAULT_WHISPER_PROMPT, str)
     assert DEFAULT_WHISPER_PROMPT == ""
 
-def test_clean_prompt_default():
-    assert isinstance(DEFAULT_CLEAN_PROMPT, str)
-    assert len(DEFAULT_CLEAN_PROMPT) > 0
-
 def test_is_connection_error():
     import groq
     t = Transcriber(api_key="x", model="x")
@@ -43,15 +39,24 @@ def test_is_connection_error():
 def test_transcriber_custom_prompts():
     t = Transcriber(
         api_key="test", model="test",
-        whisper_prompt="my prompt", clean_prompt="my clean prompt",
+        whisper_prompt="my prompt",
     )
     assert t.whisper_prompt == "my prompt"
-    assert t.clean_prompt == "my clean prompt"
 
 def test_transcriber_defaults_used_when_empty():
     t = Transcriber(api_key="test", model="test")
     assert t.whisper_prompt == DEFAULT_WHISPER_PROMPT
-    assert t.clean_prompt == DEFAULT_CLEAN_PROMPT
+
+def test_casual_mode_transform():
+    from transcriber import Transcriber
+    t = Transcriber(api_key="k", model="m", casual=True)
+    # all lowercase, strip apostrophes + periods, keep commas and ?, no trailing punct
+    assert t._casual("I don't know. Hey, are you there?") == "i dont know, hey, are you there?"
+
+def test_casual_mode_off_passes_through():
+    from transcriber import Transcriber
+    t = Transcriber(api_key="k", model="m", casual=False)
+    assert t._casual("I DON'T Know.") == "I DON'T Know."
 
 def test_overlay_states():
     from PyQt6.QtWidgets import QApplication
@@ -263,9 +268,10 @@ if __name__ == "__main__":
     test_help_subcommand()
     test_min_duration()
     test_whisper_prompt_default()
-    test_clean_prompt_default()
     test_transcriber_custom_prompts()
     test_transcriber_defaults_used_when_empty()
+    test_casual_mode_transform()
+    test_casual_mode_off_passes_through()
     test_injector_modes()
     test_overlay_states()
     test_toggle_ignored_during_transcribing()
