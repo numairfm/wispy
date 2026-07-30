@@ -261,6 +261,41 @@ def test_cloud_first_cloud_wins_during_retry():
         tm.FAST_RETRY_BACKOFF = old_backoff
 
 
+def test_transcriber_client_persistence():
+    from transcriber import Transcriber
+    t = Transcriber(api_key="test_key", model="whisper-large-v3-turbo")
+    client1 = t.get_client()
+    client2 = t.get_client()
+    assert client1 is client2
+    assert client1 is not None
+
+
+def test_whisper_uses_bytesio_without_disk(monkeypatch=None):
+    import io
+    from transcriber import Transcriber
+    t = Transcriber(api_key="dummy_key", model="whisper-large-v3-turbo")
+    
+    called_with_file = [None]
+    class DummyTranscriptions:
+        def create(self, model, file, language=None, prompt=""):
+            called_with_file[0] = file
+            class Res:
+                text = "hello world"
+            return Res()
+
+    class DummyAudio:
+        transcriptions = DummyTranscriptions()
+
+    class DummyGroqClient:
+        audio = DummyAudio()
+
+    t._client = DummyGroqClient()
+    res = t._whisper(b"RIFFdummywavbytes")
+    assert res == "hello world"
+    assert isinstance(called_with_file[0], io.BytesIO)
+    assert called_with_file[0].getvalue() == b"RIFFdummywavbytes"
+
+
 if __name__ == "__main__":
     test_server()
     test_toggle()
@@ -282,8 +317,12 @@ if __name__ == "__main__":
     test_cloud_first_cloud_success()
     test_cloud_first_local_wins_race()
     test_cloud_first_cloud_wins_during_retry()
+    test_transcriber_client_persistence()
+    test_whisper_uses_bytesio_without_disk()
     print("All tests passed.")
     sys.exit(0)
+
+
 
 
 
