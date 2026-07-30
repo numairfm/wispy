@@ -77,6 +77,14 @@ def test_overlay_states():
     ov.reset()
     assert ov.state == "recording"
 
+    # corrected state (shown briefly when background cloud retry upgrades clipboard)
+    ov.set_state("corrected")
+    assert ov.state == "corrected"
+
+def test_corrected_signal_exists():
+    from main import WispyApp
+    assert hasattr(WispyApp, '_corrected')
+
 def test_toggle_ignored_during_transcribing():
     from PyQt6.QtWidgets import QApplication
     app = QApplication.instance() or QApplication([])
@@ -264,6 +272,7 @@ if __name__ == "__main__":
     test_config_output_mode()
     test_styles_module()
     test_app_qss_applied()
+    test_corrected_signal_exists()
     test_cloud_first_cloud_success()
     test_cloud_first_local_wins_race()
     test_cloud_first_cloud_wins_during_retry()

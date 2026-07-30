@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
     QLineEdit, QComboBox, QPushButton, QCheckBox, QSlider,
     QLabel, QProgressBar, QWidget, QColorDialog,
 )
-from PyQt6.QtCore import Qt, QObject, pyqtSignal, QSocketNotifier, QThread
+from PyQt6.QtCore import Qt, QObject, pyqtSignal, QSocketNotifier, QThread, QTimer
 from PyQt6.QtGui import QIcon, QPixmap, QColor, QPainter, QPen, QFont
 
 from overlay import OVERLAY_DEFAULTS, _compute_layout
@@ -173,8 +173,16 @@ class SettingsDialog(QDialog):
         self.setWindowFlags(self.windowFlags()
                             & ~Qt.WindowType.WindowContextHelpButtonHint)
 
-        form = QFormLayout(self)
-        form.setContentsMargins(28, 24, 28, 24)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(28, 24, 28, 24)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        form_widget = QWidget()
+        form = QFormLayout(form_widget)
+        form.setContentsMargins(0, 0, 8, 0)
         form.setVerticalSpacing(12)
 
         # ── Transcription ──
@@ -290,9 +298,13 @@ class SettingsDialog(QDialog):
         self.clean_prompt.setEnabled(config.get("clean_text", False))
         form.addRow("Clean Prompt", self.clean_prompt)
 
+        scroll.setWidget(form_widget)
+        root.addWidget(scroll)
+
         # ── Buttons ──
         btn_row = QHBoxLayout()
         btn_row.addStretch()
+        btn_row.setSpacing(8)
         cancel = QPushButton("Cancel")
         cancel.clicked.connect(self.reject)
         save = QPushButton("Save")
@@ -300,7 +312,7 @@ class SettingsDialog(QDialog):
         save.clicked.connect(self._save)
         btn_row.addWidget(cancel)
         btn_row.addWidget(save)
-        form.addRow(btn_row)
+        root.addLayout(btn_row)
 
         self._on_engine_changed(self.engine_mode.currentIndex())
 
@@ -520,7 +532,8 @@ class AppearanceDialog(QDialog):
         # scrollable controls
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setMaximumHeight(340)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         form = QWidget()
         fl = QFormLayout(form)
         fl.setContentsMargins(8, 8, 8, 8)
@@ -571,6 +584,7 @@ class AppearanceDialog(QDialog):
         # buttons
         btn_row = QHBoxLayout()
         btn_row.addStretch()
+        btn_row.setSpacing(8)
         reset = QPushButton("Reset Defaults")
         reset.clicked.connect(self._reset)
         cancel = QPushButton("Cancel")
@@ -644,6 +658,7 @@ class WispyApp(QObject):
     _set_clipboard = pyqtSignal(str)
     _rec_error = pyqtSignal(str)
     _transcribe_finished = pyqtSignal()
+    _corrected = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -670,6 +685,7 @@ class WispyApp(QObject):
         self._set_clipboard.connect(self._on_set_clipboard)
         self._rec_error.connect(self._on_rec_error)
         self._transcribe_finished.connect(self._on_transcribe_finished)
+        self._corrected.connect(self._on_corrected)
         self._setup_tray()
         self._start_ipc()
 
@@ -695,6 +711,11 @@ class WispyApp(QObject):
     def _on_transcribe_finished(self):
         self.overlay.hide()
         self.overlay.set_state("recording")
+
+    def _on_corrected(self):
+        self.overlay.set_state("corrected")
+        self.overlay.show()
+        QTimer.singleShot(2000, self.overlay.hide)
 
     # ── config ──────────────────────────────────────────────────
 
@@ -821,10 +842,19 @@ class WispyApp(QObject):
             )
             inj = Injector()
             try:
-                text = t.transcribe(buffer)
+                from recorder import encode_wav
+                output_mode = self.config.get("output_mode", "paste")
+                used_local = False
+
+                if self.config.get("engine_mode") == "hybrid" and t.api_key:
+                    wav_bytes = encode_wav(buffer)
+                    text, used_local = t.transcribe_cloud_first(wav_bytes, buffer)
+                    text = t._clean(text)
+                else:
+                    text = t.transcribe(buffer)
+
                 if not text:
                     return
-                output_mode = self.config.get("output_mode", "paste")
                 self._set_clipboard.emit(text)
 
                 # Emit completion signal FIRST so overlay hides immediately and active window recovers focus
@@ -834,6 +864,21 @@ class WispyApp(QObject):
                     # Sleep 150ms to allow KDE Plasma / Wayland compositor to restore input focus to the target app
                     time.sleep(0.15)
                     inj.inject(text, mode=output_mode, send_enter=self.config.get("send_enter", False))
+
+                # Local won — start background cloud retry for clipboard upgrade
+                # ponytail: double encode_wav here (already encoded above in hybrid path), cache if profiling matters
+                if used_local and t.api_key:
+                    wav_bytes = encode_wav(buffer)
+
+                    def on_retry_success(cloud_text):
+                        cleaned = t._clean(cloud_text)
+                        self._set_clipboard.emit(cleaned)
+                        self._corrected.emit()
+
+                    def on_retry_fail():
+                        pass  # local result stands
+
+                    t.retry_cloud_async(wav_bytes, on_retry_success, on_retry_fail)
             except InvalidAudioError:
                 pass
             except Exception as e:

@@ -148,6 +148,22 @@ class OverlayWindow(QWidget):
                        "Transcribing…")
             return
 
+        if self.state == "corrected":
+            # green dot — cloud retry succeeded, clipboard upgraded
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(76, 175, 80, 230))
+            dot_r = ap["corner_radius"] // 4
+            p.drawEllipse(lay["dot_x"] - dot_r, cy - dot_r, dot_r * 2, dot_r * 2)
+
+            p.setPen(QColor(255, 255, 255, 220))
+            p.setFont(QFont("sans-serif", 9))
+            text_x = lay["wf_l"]
+            text_w = lay["bt_x"] - lay["wf_l"]
+            p.drawText(text_x, 0, text_w, ap["height"],
+                       Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignCenter,
+                       "Corrected✓")
+            return
+
         # recording dot
         a = int(180 + 75 * math.sin(self.elapsed_ticks * 0.15))
         dc = ap["dot_color"]
