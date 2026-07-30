@@ -31,6 +31,11 @@ class Transcriber:
         self.clean_prompt = clean_prompt or DEFAULT_CLEAN_PROMPT
         self._local = None
 
+    def _is_connection_error(self, exc):
+        """True for network-level failures worth retrying."""
+        import groq
+        return isinstance(exc, (groq.APIConnectionError, groq.APITimeoutError))
+
     def _whisper(self, wav_bytes, timeout=None):
         client = groq.Groq(api_key=self.api_key, timeout=timeout)
         tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)

@@ -29,6 +29,17 @@ def test_clean_prompt_default():
     assert isinstance(DEFAULT_CLEAN_PROMPT, str)
     assert len(DEFAULT_CLEAN_PROMPT) > 0
 
+def test_is_connection_error():
+    import groq
+    t = Transcriber(api_key="x", model="x")
+    assert t._is_connection_error(groq.APIConnectionError(request=None)) is True
+    assert t._is_connection_error(groq.APITimeoutError(request=None)) is True
+    auth_err = groq.AuthenticationError.__new__(groq.AuthenticationError)
+    rate_err = groq.RateLimitError.__new__(groq.RateLimitError)
+    assert t._is_connection_error(auth_err) is False
+    assert t._is_connection_error(rate_err) is False
+    assert t._is_connection_error(Exception("generic")) is False
+
 def test_transcriber_custom_prompts():
     t = Transcriber(
         api_key="test", model="test",
