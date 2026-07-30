@@ -841,8 +841,8 @@ class WispyApp(QObject):
                 output_mode = self.config.get("output_mode", "paste")
                 used_local = False
 
+                wav_bytes = encode_wav(buffer)
                 if self.config.get("engine_mode") == "hybrid" and t.api_key:
-                    wav_bytes = encode_wav(buffer)
                     text, used_local = t.transcribe_cloud_first(wav_bytes, buffer)
                     text = t._casual(text)
                 else:
@@ -861,10 +861,7 @@ class WispyApp(QObject):
                     inj.inject(text, mode=output_mode, send_enter=self.config.get("send_enter", False))
 
                 # Local won — start background cloud retry for clipboard upgrade
-                # ponytail: double encode_wav here (already encoded above in hybrid path), cache if profiling matters
                 if used_local and t.api_key:
-                    wav_bytes = encode_wav(buffer)
-
                     def on_retry_success(cloud_text):
                         cleaned = t._casual(cloud_text)
                         self._set_clipboard.emit(cleaned)
